@@ -1,0 +1,12 @@
+{
+  "name": "gcnv-mcp-server",
+  "version": "1.0.0",
+  "contextFileName": "GEMINI.md",
+  "mcpServers": {
+    "gcnv-mcp": {
+      "command": "npx",
+      "transport": "jsonrpc",
+      "args": ["@netapp/gcnv-mcp-server@latest"]
+    }
+  }
+}

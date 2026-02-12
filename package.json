@@ -1,0 +1,74 @@
+{
+  "name": "@netapp/gcnv-mcp-server",
+  "version": "1.0.0",
+  "description": "Google Cloud NetApp Volumes MCP Server - A Model Context Protocol server for managing GCNV Backup, StoragePool, Volume and Replication resources",
+  "main": "build/index.js",
+  "bin": {
+    "gcnv-mcp": "build/index.js"
+  },
+  "files": [
+    "build",
+    "GEMINI.md",
+    "gemini-extension.json",
+    "README.md",
+    "LICENSE"
+  ],
+  "type": "module",
+  "engines": {
+    "node": ">=18"
+  },
+  "publishConfig": {
+    "registry": "https://npm.pkg.github.com",
+    "access": "public"
+  },
+  "scripts": {
+    "githooks:install": "git config core.hooksPath .githooks",
+    "precommit": "npm run lint && npm test",
+    "prepack": "npm run build",
+    "build": "npm run lint && npm run format && tsc",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint . --ext .ts --max-warnings=0",
+    "lint:fix": "eslint . --ext .ts --fix",
+    "format": "prettier --check .",
+    "format:fix": "prettier --write .",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "start": "node build/index.js",
+    "start:stdio": "node build/index.js --transport stdio",
+    "start:http": "node build/index.js --transport http",
+    "dev": "tsx src/index.ts",
+    "dev:http": "tsx src/index.ts --transport http"
+  },
+  "keywords": [
+    "mcp",
+    "google",
+    "netapp",
+    "ontap",
+    "storage",
+    "api"
+  ],
+  "author": "",
+  "license": "Apache-2.0",
+  "devDependencies": {
+    "@eslint/js": "^9.39.1",
+    "@types/node": "^24.1.0",
+    "@vitest/coverage-v8": "^3.2.4",
+    "eslint": "^9.39.1",
+    "eslint-config-prettier": "^10.1.1",
+    "prettier": "^3.4.1",
+    "tsx": "^4.19.1",
+    "typescript": "^5.8.3",
+    "typescript-eslint": "^8.48.0",
+    "vitest": "^3.2.4"
+  },
+  "dependencies": {
+    "@google-cloud/netapp": "^0.16.0",
+    "@google-cloud/local-auth": "3.0.1",
+    "@modelcontextprotocol/sdk": "^1.20.1",
+    "axios": "^1.6.3",
+    "pino": "^9.5.0",
+    "pino-pretty": "^11.3.0",
+    "zod": "^3.25.76"
+  }
+}
