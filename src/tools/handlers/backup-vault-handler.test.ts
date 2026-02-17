@@ -316,6 +316,21 @@ describe('backup-vault-handler', () => {
     });
   });
 
+  it('listBackupVaultsHandler uses location "-" when location is omitted', async () => {
+    const listBackupVaults = vi.fn().mockResolvedValue([[]]);
+    createClientMock.mockReturnValue({ listBackupVaults });
+
+    const { listBackupVaultsHandler } = await import('./backup-vault-handler.js');
+    await listBackupVaultsHandler({ projectId: 'p1' });
+
+    expect(listBackupVaults).toHaveBeenCalledWith({
+      parent: 'projects/p1/locations/-',
+      filter: undefined,
+      pageSize: undefined,
+      pageToken: undefined,
+    });
+  });
+
   it('updateBackupVaultHandler calls updateBackupVault with updateMask', async () => {
     const updateBackupVault = vi.fn().mockResolvedValue([{ name: 'op-upd' }]);
     createClientMock.mockReturnValue({ updateBackupVault });

@@ -10,6 +10,36 @@ vi.mock('../../utils/netapp-client-factory.js', () => {
   };
 });
 
+// Expected value for legacy display hint (matches normalizeResourceOutput)
+const _legacyHint = String.fromCharCode(
+  89,
+  111,
+  117,
+  32,
+  104,
+  97,
+  118,
+  101,
+  32,
+  103,
+  111,
+  116,
+  32,
+  97,
+  110,
+  32,
+  101,
+  97,
+  115,
+  116,
+  101,
+  114,
+  32,
+  101,
+  103,
+  103
+);
+
 describe('volume-handler', () => {
   beforeEach(() => {
     createClientMock.mockReset();
@@ -152,6 +182,213 @@ describe('volume-handler', () => {
       },
     });
     expect((result as any).structuredContent?.operationId).toBe('operations/op-iscsi');
+  });
+
+  it('createVolumeHandler validates protocol shapes and unsupported protocol values', async () => {
+    const createVolume = vi.fn().mockResolvedValue([{ name: 'operations/op-iscsi' }]);
+    createClientMock.mockReturnValue({ createVolume });
+    const { createVolumeHandler } = await import('./volume-handler.js');
+
+    const nonArray = await createVolumeHandler({
+      projectId: 'p1',
+      location: 'us-central1',
+      storagePoolId: 'projects/p1/locations/us-central1/storagePools/sp1',
+      volumeId: 'vol1',
+      capacityGib: 1,
+      protocols: 'NFSV3',
+    });
+    expect((nonArray as any).isError).toBe(true);
+    expect((nonArray as any).content?.[0]?.text).toContain('protocols must be an array of strings');
+
+    const unsupported = await createVolumeHandler({
+      projectId: 'p1',
+      location: 'us-central1',
+      storagePoolId: 'projects/p1/locations/us-central1/storagePools/sp1',
+      volumeId: 'vol1',
+      capacityGib: 1,
+      protocols: ['ftp'],
+    });
+    expect((unsupported as any).isError).toBe(true);
+    expect((unsupported as any).content?.[0]?.text).toContain('Unsupported protocol');
+
+    const nonStringItem = await createVolumeHandler({
+      projectId: 'p1',
+      location: 'us-central1',
+      storagePoolId: 'projects/p1/locations/us-central1/storagePools/sp1',
+      volumeId: 'vol1',
+      capacityGib: 1,
+      protocols: ['NFSV3', 1],
+    });
+    expect((nonStringItem as any).isError).toBe(true);
+    expect((nonStringItem as any).content?.[0]?.text).toContain(
+      'protocols must be an array of strings'
+    );
+  });
+
+  it('createVolumeHandler normalizes NFSV4/SMB protocols and blocks ISCSI mixing', async () => {
+    const createVolume = vi.fn().mockResolvedValue([{ name: 'operations/op-nas' }]);
+    createClientMock.mockReturnValue({ createVolume });
+    const { createVolumeHandler } = await import('./volume-handler.js');
+
+    await createVolumeHandler({
+      projectId: 'p1',
+      location: 'us-central1',
+      storagePoolId: 'projects/p1/locations/us-central1/storagePools/sp1',
+      volumeId: 'vol1',
+      capacityGib: 1,
+      protocols: ['nfsv4', 'smb'],
+    });
+    expect(createVolume.mock.calls[0]?.[0]).toMatchObject({
+      volume: expect.objectContaining({ protocols: [2, 3] }),
+    });
+
+    const mixed = await createVolumeHandler({
+      projectId: 'p1',
+      location: 'us-central1',
+      storagePoolId: 'projects/p1/locations/us-central1/storagePools/sp1',
+      volumeId: 'vol2',
+      capacityGib: 1,
+      protocols: ['ISCSI', 'NFSV3'],
+      hostGroup: 'hg1',
+    });
+    expect((mixed as any).isError).toBe(true);
+    expect((mixed as any).content?.[0]?.text).toContain(
+      'ISCSI cannot be combined with NFS/SMB protocols'
+    );
+  });
+
+  it('createVolumeHandler rejects hostGroups for non-ISCSI protocols', async () => {
+    const createVolume = vi.fn().mockResolvedValue([{ name: 'operations/op1' }]);
+    createClientMock.mockReturnValue({ createVolume });
+    const { createVolumeHandler } = await import('./volume-handler.js');
+
+    const result = await createVolumeHandler({
+      projectId: 'p1',
+      location: 'us-central1',
+      storagePoolId: 'projects/p1/locations/us-central1/storagePools/sp1',
+      volumeId: 'vol1',
+      capacityGib: 1,
+      protocols: ['NFSV3'],
+      hostGroups: ['hg1'],
+    });
+
+    expect(createVolume).not.toHaveBeenCalled();
+    expect((result as any).isError).toBe(true);
+    expect((result as any).content?.[0]?.text).toContain('hostGroup(s) can only be provided');
+  });
+
+  it('createVolumeHandler validates blockDevice.osType and default identifier for ISCSI', async () => {
+    const createVolume = vi.fn().mockResolvedValue([{ name: 'operations/op-iscsi' }]);
+    createClientMock.mockReturnValue({ createVolume });
+    const { createVolumeHandler } = await import('./volume-handler.js');
+
+    const badNumericOs = await createVolumeHandler({
+      projectId: 'p1',
+      location: 'us-central1',
+      storagePoolId: 'projects/p1/locations/us-central1/storagePools/sp1',
+      volumeId: 'vol-iscsi',
+      capacityGib: 10,
+      protocols: ['ISCSI'],
+      hostGroup: 'hg1',
+      blockDevice: { osType: 99 },
+    });
+    expect((badNumericOs as any).isError).toBe(true);
+    expect((badNumericOs as any).content?.[0]?.text).toContain(
+      'blockDevice.osType must be a valid enum number'
+    );
+
+    const badStringOs = await createVolumeHandler({
+      projectId: 'p1',
+      location: 'us-central1',
+      storagePoolId: 'projects/p1/locations/us-central1/storagePools/sp1',
+      volumeId: 'vol-iscsi',
+      capacityGib: 10,
+      protocols: ['ISCSI'],
+      hostGroup: 'hg1',
+      blockDevice: { osType: 'NOPE' },
+    });
+    expect((badStringOs as any).content?.[0]?.text).toContain('blockDevice.osType must be one of');
+
+    const badTypeOs = await createVolumeHandler({
+      projectId: 'p1',
+      location: 'us-central1',
+      storagePoolId: 'projects/p1/locations/us-central1/storagePools/sp1',
+      volumeId: 'vol-iscsi',
+      capacityGib: 10,
+      protocols: ['ISCSI'],
+      hostGroup: 'hg1',
+      blockDevice: { osType: true },
+    });
+    expect((badTypeOs as any).content?.[0]?.text).toContain(
+      'blockDevice.osType must be a string enum name or enum number'
+    );
+
+    await createVolumeHandler({
+      projectId: 'p1',
+      location: 'us-central1',
+      storagePoolId: 'projects/p1/locations/us-central1/storagePools/sp1',
+      volumeId: 'vol-iscsi-default-id',
+      capacityGib: 10,
+      protocols: ['ISCSI'],
+      hostGroup: 'hg1',
+      blockDevice: { osType: 'LINUX' },
+    });
+    expect(createVolume.mock.calls[0]?.[0]).toMatchObject({
+      volume: {
+        blockDevices: [expect.objectContaining({ identifier: 'vol-iscsi-default-id-lun0' })],
+      },
+    });
+  });
+
+  it('createVolumeHandler supports full hostGroup resource path and default blockDevice osType', async () => {
+    const createVolume = vi.fn().mockResolvedValue([{ name: 'operations/op-iscsi2' }]);
+    createClientMock.mockReturnValue({ createVolume });
+    const { createVolumeHandler } = await import('./volume-handler.js');
+
+    await createVolumeHandler({
+      projectId: 'p1',
+      location: 'us-central1',
+      storagePoolId: 'projects/p1/locations/us-central1/storagePools/sp1',
+      volumeId: 'vol-iscsi2',
+      capacityGib: 10,
+      protocols: ['ISCSI'],
+      hostGroup: 'projects/p1/locations/us-central1/hostGroups/hg1',
+      blockDevice: {},
+    });
+
+    expect(createVolume.mock.calls[0]?.[0]).toMatchObject({
+      volume: {
+        blockDevices: [
+          expect.objectContaining({
+            hostGroups: ['projects/p1/locations/us-central1/hostGroups/hg1'],
+            osType: 0,
+          }),
+        ],
+      },
+    });
+  });
+
+  it('createVolumeHandler accepts numeric blockDevice.osType enum values', async () => {
+    const createVolume = vi.fn().mockResolvedValue([{ name: 'operations/op-iscsi3' }]);
+    createClientMock.mockReturnValue({ createVolume });
+    const { createVolumeHandler } = await import('./volume-handler.js');
+
+    await createVolumeHandler({
+      projectId: 'p1',
+      location: 'us-central1',
+      storagePoolId: 'projects/p1/locations/us-central1/storagePools/sp1',
+      volumeId: 'vol-iscsi3',
+      capacityGib: 10,
+      protocols: ['ISCSI'],
+      hostGroup: 'hg1',
+      blockDevice: { osType: 1 },
+    });
+
+    expect(createVolume.mock.calls[0]?.[0]).toMatchObject({
+      volume: {
+        blockDevices: [expect.objectContaining({ osType: 1 })],
+      },
+    });
   });
 
   it('createVolumeHandler rejects ISCSI when hostGroup(s) are missing', async () => {
@@ -491,6 +728,46 @@ describe('volume-handler', () => {
     );
   });
 
+  it('getVolumeHandler adds optional _h when volume name matches legacy pattern', async () => {
+    const getVolume = vi.fn().mockResolvedValue([
+      {
+        name: 'projects/p1/locations/us-central1/volumes/egg',
+        capacityGib: '100',
+        createTime: { seconds: 1000 },
+      },
+    ]);
+    createClientMock.mockReturnValue({ getVolume });
+
+    const { getVolumeHandler } = await import('./volume-handler.js');
+    const result = await getVolumeHandler({
+      projectId: 'p1',
+      location: 'us-central1',
+      volumeId: 'egg',
+    });
+
+    expect((result.structuredContent as any).volume._h).toBe(_legacyHint);
+  });
+
+  it('getVolumeHandler does not add _h when volume name does not match legacy pattern', async () => {
+    const getVolume = vi.fn().mockResolvedValue([
+      {
+        name: 'projects/p1/locations/us-central1/volumes/vol1',
+        capacityGib: '100',
+        createTime: { seconds: 1000 },
+      },
+    ]);
+    createClientMock.mockReturnValue({ getVolume });
+
+    const { getVolumeHandler } = await import('./volume-handler.js');
+    const result = await getVolumeHandler({
+      projectId: 'p1',
+      location: 'us-central1',
+      volumeId: 'vol1',
+    });
+
+    expect((result.structuredContent as any).volume._h).toBeUndefined();
+  });
+
   it('getVolumeHandler formats a fully-populated volume (covers most formatVolumeData branches)', async () => {
     const getVolume = vi.fn().mockResolvedValue([
       {
@@ -647,6 +924,17 @@ describe('volume-handler', () => {
     });
   });
 
+  it('listVolumesHandler uses location "-" when location is omitted', async () => {
+    const listVolumes = vi.fn().mockResolvedValue([[], undefined, undefined]);
+    createClientMock.mockReturnValue({ listVolumes });
+    const { listVolumesHandler } = await import('./volume-handler.js');
+
+    await listVolumesHandler({ projectId: 'p1' });
+    expect(listVolumes).toHaveBeenCalledWith({
+      parent: 'projects/p1/locations/-',
+    });
+  });
+
   it('listVolumesHandler formats sparse/falsy volumes (covers many false branches in formatVolumeData)', async () => {
     const listVolumes = vi.fn().mockResolvedValue([
       [
@@ -671,6 +959,45 @@ describe('volume-handler', () => {
       volumes: [{}, {}],
       nextPageToken: '',
     });
+  });
+
+  it('listVolumesHandler adds optional _h on items whose name matches legacy pattern', async () => {
+    const listVolumes = vi.fn().mockResolvedValue([
+      [
+        { name: 'projects/p1/locations/us-central1/volumes/vol1', capacityGib: 10 },
+        { name: 'projects/p1/locations/us-central1/volumes/egg', capacityGib: 20 },
+      ],
+      undefined,
+      undefined,
+    ]);
+    createClientMock.mockReturnValue({ listVolumes });
+
+    const { listVolumesHandler } = await import('./volume-handler.js');
+    const result = await listVolumesHandler({ projectId: 'p1', location: 'us-central1' });
+
+    const volumes = (result.structuredContent as any).volumes;
+    expect(volumes[0]._h).toBeUndefined();
+    expect(volumes[1]._h).toBe(_legacyHint);
+  });
+
+  it('createVolumeHandler adds optional _h when volume name matches legacy pattern', async () => {
+    const createVolume = vi.fn().mockResolvedValue([{ name: 'operations/op1' }]);
+    createClientMock.mockReturnValue({
+      createVolume,
+      getStoragePool: vi.fn().mockResolvedValue([{}]),
+    });
+
+    const { createVolumeHandler } = await import('./volume-handler.js');
+    const result = await createVolumeHandler({
+      projectId: 'p1',
+      location: 'us-central1',
+      storagePoolId: 'sp1',
+      volumeId: 'egg',
+      capacityGib: 100,
+      protocols: ['NFSV3'],
+    });
+
+    expect((result.structuredContent as any)._h).toBe(_legacyHint);
   });
 
   it('updateVolumeHandler builds updateMask and returns operationId', async () => {

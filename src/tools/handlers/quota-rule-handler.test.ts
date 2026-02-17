@@ -449,6 +449,23 @@ describe('quota-rule-handler', () => {
     expect(result.structuredContent).toMatchObject({ quotaRules: [], nextPageToken: 'n' });
   });
 
+  it('listQuotaRulesHandler uses location "-" when location is omitted', async () => {
+    const listQuotaRules = vi.fn().mockResolvedValue([[], undefined, { nextPageToken: '' }]);
+    createClientMock.mockReturnValue({ listQuotaRules });
+
+    const { listQuotaRulesHandler } = await import('./quota-rule-handler.js');
+    await listQuotaRulesHandler({
+      projectId: 'p1',
+      volumeId: 'vol1',
+      pageSize: 1,
+    });
+
+    expect(listQuotaRules).toHaveBeenCalledWith({
+      parent: 'projects/p1/locations/-/volumes/vol1',
+      pageSize: 1,
+    });
+  });
+
   it('listQuotaRulesHandler covers error path', async () => {
     const listQuotaRules = vi.fn().mockRejectedValue(new Error('boom'));
     createClientMock.mockReturnValue({ listQuotaRules });

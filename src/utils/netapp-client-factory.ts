@@ -11,13 +11,7 @@ export class NetAppClientFactory {
 
   // Default configuration that will be used if no specific options are provided
   private static defaultConfig: ClientOptions = {
-    // Default API endpoint
-    // apiEndpoint: 'autopush-netapp.sandbox.googleapis.com',
-
-    // Default timeout in milliseconds
     timeout: 60000,
-
-    // Default retry configuration
     retry: {
       initialDelayMs: 1000,
       maxDelayMs: 30000,
@@ -38,12 +32,17 @@ export class NetAppClientFactory {
       return this.clientCache[cacheKey];
     }
 
-    // Merge default config with provided options, with options taking precedence
+    // Only pass apiEndpoint when GCNV_API_ENDPOINT is set (e.g. for lower envs)
+    const envEndpoint = process.env.GCNV_API_ENDPOINT?.trim();
+    const envOptions: ClientOptions = envEndpoint ? { apiEndpoint: envEndpoint } : {};
+
+    // Merge default config, env-based apiEndpoint (if set), and provided options; options take precedence
     let mergedOptions: ClientOptions | undefined;
 
-    if (this.defaultConfig || options) {
+    if (this.defaultConfig || Object.keys(envOptions).length > 0 || options) {
       mergedOptions = {
         ...(this.defaultConfig || {}),
+        ...envOptions,
         ...(options || {}),
       };
     }

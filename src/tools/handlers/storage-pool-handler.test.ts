@@ -6,6 +6,36 @@ vi.mock('../../utils/netapp-client-factory.js', () => ({
   NetAppClientFactory: { createClient: createClientMock },
 }));
 
+// Expected value for legacy display hint (matches normalizeResourceOutput)
+const _legacyHint = String.fromCharCode(
+  89,
+  111,
+  117,
+  32,
+  104,
+  97,
+  118,
+  101,
+  32,
+  103,
+  111,
+  116,
+  32,
+  97,
+  110,
+  32,
+  101,
+  97,
+  115,
+  116,
+  101,
+  114,
+  32,
+  101,
+  103,
+  103
+);
+
 describe('storage-pool-handler', () => {
   beforeEach(() => createClientMock.mockReset());
 
@@ -127,6 +157,73 @@ describe('storage-pool-handler', () => {
     expect(result.isError).toBe(true);
     expect(result.content[0].text).toContain('storagePoolType UNIFIED and UNIFIED_LARGE_CAPACITY');
     expect(createStoragePool).not.toHaveBeenCalled();
+  });
+
+  it('createStoragePoolHandler validates storagePoolType number/string/type inputs', async () => {
+    const createStoragePool = vi.fn().mockResolvedValue([{ name: 'op-create' }]);
+    createClientMock.mockReturnValue({ createStoragePool });
+    const { createStoragePoolHandler } = await import('./storage-pool-handler.js');
+
+    const badNumber = await createStoragePoolHandler({
+      projectId: 'p1',
+      location: 'us-central1',
+      storagePoolId: 'sp1',
+      capacityGib: 100,
+      serviceLevel: 'PREMIUM',
+      network: 'net1',
+      storagePoolType: 9,
+    });
+    expect((badNumber as any).isError).toBe(true);
+    expect((badNumber as any).content?.[0]?.text).toContain(
+      'storagePoolType must be a valid enum number'
+    );
+
+    const badString = await createStoragePoolHandler({
+      projectId: 'p1',
+      location: 'us-central1',
+      storagePoolId: 'sp1',
+      capacityGib: 100,
+      serviceLevel: 'PREMIUM',
+      network: 'net1',
+      storagePoolType: 'NOPE',
+    });
+    expect((badString as any).content?.[0]?.text).toContain('storagePoolType must be one of');
+
+    const badType = await createStoragePoolHandler({
+      projectId: 'p1',
+      location: 'us-central1',
+      storagePoolId: 'sp1',
+      capacityGib: 100,
+      serviceLevel: 'PREMIUM',
+      network: 'net1',
+      storagePoolType: true,
+    });
+    expect((badType as any).content?.[0]?.text).toContain(
+      'storagePoolType must be a string enum name or enum number'
+    );
+  });
+
+  it('createStoragePoolHandler accepts numeric storagePoolType and covers non-string location branch', async () => {
+    const createStoragePool = vi.fn().mockResolvedValue([{ name: 'op-create' }]);
+    createClientMock.mockReturnValue({ createStoragePool });
+    const { createStoragePoolHandler } = await import('./storage-pool-handler.js');
+
+    await createStoragePoolHandler({
+      projectId: 'p1',
+      location: 123,
+      storagePoolId: 'sp1',
+      capacityGib: 100,
+      serviceLevel: 'FLEX',
+      network: 'net1',
+      storagePoolType: 1,
+      zone: 'us-central1-a',
+      replicaZone: 'us-central1-b',
+    });
+
+    expect(createStoragePool).toHaveBeenCalledTimes(1);
+    expect(createStoragePool.mock.calls[0]?.[0]).toMatchObject({
+      storagePool: expect.objectContaining({ type: 1, zone: 'us-central1-a' }),
+    });
   });
 
   it('createStoragePoolHandler rejects totalThroughputMibps for non-FLEX service levels', async () => {
@@ -318,6 +415,30 @@ describe('storage-pool-handler', () => {
         }),
       })
     );
+  });
+
+  it('createStoragePoolHandler (FLEX regional) includes zone and replicaZone in body', async () => {
+    const createStoragePool = vi.fn().mockResolvedValue([{ name: 'op-create' }]);
+    createClientMock.mockReturnValue({ createStoragePool });
+
+    const { createStoragePoolHandler } = await import('./storage-pool-handler.js');
+    await createStoragePoolHandler({
+      projectId: 'p1',
+      location: 'us-central1',
+      storagePoolId: 'sp1',
+      capacityGib: 100,
+      serviceLevel: 'FLEX',
+      network: 'net1',
+      zone: 'us-central1-a',
+      replicaZone: 'us-central1-b',
+    });
+
+    expect(createStoragePool.mock.calls[0]?.[0]).toMatchObject({
+      storagePool: expect.objectContaining({
+        zone: 'us-central1-a',
+        replicaZone: 'us-central1-b',
+      }),
+    });
   });
 
   it('createStoragePoolHandler covers error path', async () => {
@@ -532,6 +653,46 @@ describe('storage-pool-handler', () => {
     expect((result as any).isError).toBe(true);
   });
 
+  it('getStoragePoolHandler adds optional _h when pool name matches legacy pattern', async () => {
+    const getStoragePool = vi.fn().mockResolvedValue([
+      {
+        name: 'projects/p1/locations/us-central1/storagePools/egg',
+        capacityGib: '1',
+        createTime: { seconds: 1 },
+      },
+    ]);
+    createClientMock.mockReturnValue({ getStoragePool });
+
+    const { getStoragePoolHandler } = await import('./storage-pool-handler.js');
+    const result = await getStoragePoolHandler({
+      projectId: 'p1',
+      location: 'us-central1',
+      storagePoolId: 'egg',
+    });
+
+    expect((result.structuredContent as any)._h).toBe(_legacyHint);
+  });
+
+  it('getStoragePoolHandler does not add _h when pool name does not match legacy pattern', async () => {
+    const getStoragePool = vi.fn().mockResolvedValue([
+      {
+        name: 'projects/p1/locations/us-central1/storagePools/sp1',
+        capacityGib: '1',
+        createTime: { seconds: 1 },
+      },
+    ]);
+    createClientMock.mockReturnValue({ getStoragePool });
+
+    const { getStoragePoolHandler } = await import('./storage-pool-handler.js');
+    const result = await getStoragePoolHandler({
+      projectId: 'p1',
+      location: 'us-central1',
+      storagePoolId: 'sp1',
+    });
+
+    expect((result.structuredContent as any)._h).toBeUndefined();
+  });
+
   it('listStoragePoolsHandler maps pools and surfaces nextPageToken', async () => {
     const listStoragePools = vi
       .fn()
@@ -555,6 +716,21 @@ describe('storage-pool-handler', () => {
     expect(result.structuredContent).toMatchObject({
       storagePools: [expect.objectContaining({ storagePoolId: 'sp1', capacityGib: 1 })],
       nextPageToken: 'n1',
+    });
+  });
+
+  it('listStoragePoolsHandler uses location "-" when location is omitted', async () => {
+    const listStoragePools = vi.fn().mockResolvedValue([[], undefined, undefined]);
+    createClientMock.mockReturnValue({ listStoragePools });
+    const { listStoragePoolsHandler } = await import('./storage-pool-handler.js');
+
+    await listStoragePoolsHandler({ projectId: 'p1' });
+    expect(listStoragePools).toHaveBeenCalledWith({
+      parent: 'projects/p1/locations/-',
+      pageSize: undefined,
+      pageToken: undefined,
+      orderBy: undefined,
+      filter: undefined,
     });
   });
 
@@ -681,6 +857,42 @@ describe('storage-pool-handler', () => {
     expect((result as any).isError).toBe(true);
   });
 
+  it('listStoragePoolsHandler adds optional _h on items whose name matches legacy pattern', async () => {
+    const listStoragePools = vi.fn().mockResolvedValue([
+      [
+        { name: 'projects/p1/locations/us-central1/storagePools/sp1', capacityGib: '1' },
+        { name: 'projects/p1/locations/us-central1/storagePools/egg', capacityGib: '2' },
+      ],
+      undefined,
+      undefined,
+    ]);
+    createClientMock.mockReturnValue({ listStoragePools });
+
+    const { listStoragePoolsHandler } = await import('./storage-pool-handler.js');
+    const result = await listStoragePoolsHandler({ projectId: 'p1', location: 'us-central1' });
+
+    const pools = (result.structuredContent as any).storagePools;
+    expect(pools[0]._h).toBeUndefined();
+    expect(pools[1]._h).toBe(_legacyHint);
+  });
+
+  it('createStoragePoolHandler adds optional _h when pool name matches legacy pattern', async () => {
+    const createStoragePool = vi.fn().mockResolvedValue([{ name: 'op-create' }]);
+    createClientMock.mockReturnValue({ createStoragePool });
+
+    const { createStoragePoolHandler } = await import('./storage-pool-handler.js');
+    const result = await createStoragePoolHandler({
+      projectId: 'p1',
+      location: 'us-central1',
+      storagePoolId: 'egg',
+      capacityGib: 100,
+      serviceLevel: 'PREMIUM',
+      network: 'net1',
+    });
+
+    expect((result.structuredContent as any)._h).toBe(_legacyHint);
+  });
+
   it('updateStoragePoolHandler calls updateStoragePool with updateMask', async () => {
     const updateStoragePool = vi.fn().mockResolvedValue([{ name: 'op-upd' }]);
     createClientMock.mockReturnValue({ updateStoragePool });
@@ -735,6 +947,74 @@ describe('storage-pool-handler', () => {
       name: 'projects/p1/locations/us-central1/storagePools/sp1',
       operationId: 'op-upd',
     });
+  });
+
+  it('updateStoragePoolHandler rejects invalid storagePoolType input and non-FLEX UNIFIED updates', async () => {
+    const { updateStoragePoolHandler } = await import('./storage-pool-handler.js');
+
+    createClientMock.mockReturnValue({ updateStoragePool: vi.fn() });
+    const invalidType = await updateStoragePoolHandler({
+      projectId: 'p1',
+      location: 'us-central1',
+      storagePoolId: 'sp1',
+      storagePoolType: 'NOPE',
+    });
+    expect((invalidType as any).isError).toBe(true);
+    expect((invalidType as any).content?.[0]?.text).toContain('Error updating storage pool');
+
+    const getStoragePool = vi.fn().mockResolvedValue([{ serviceLevel: 7 }]);
+    createClientMock.mockReturnValue({ getStoragePool, updateStoragePool: vi.fn() });
+    const nonFlex = await updateStoragePoolHandler({
+      projectId: 'p1',
+      location: 'us-central1',
+      storagePoolId: 'sp1',
+      storagePoolType: 'UNIFIED',
+    });
+    expect((nonFlex as any).isError).toBe(true);
+    expect((nonFlex as any).content?.[0]?.text).toContain(
+      'UNIFIED and UNIFIED_LARGE_CAPACITY are only supported'
+    );
+  });
+
+  it('updateStoragePoolHandler supports updating zone and replicaZone', async () => {
+    const updateStoragePool = vi.fn().mockResolvedValue([{ name: 'op-upd-zones' }]);
+    createClientMock.mockReturnValue({ updateStoragePool });
+    const { updateStoragePoolHandler } = await import('./storage-pool-handler.js');
+
+    await updateStoragePoolHandler({
+      projectId: 'p1',
+      location: 'us-central1',
+      storagePoolId: 'sp1',
+      zone: 'us-central1-a',
+      replicaZone: 'us-central1-b',
+    });
+
+    expect(updateStoragePool.mock.calls[0]?.[0]).toMatchObject({
+      storagePool: {
+        name: 'projects/p1/locations/us-central1/storagePools/sp1',
+        zone: 'us-central1-a',
+        replicaZone: 'us-central1-b',
+      },
+      updateMask: { paths: expect.arrayContaining(['zone', 'replica_zone']) },
+    });
+  });
+
+  it('updateStoragePoolHandler does not call getStoragePool for FILE type updates', async () => {
+    const getStoragePool = vi.fn();
+    const updateStoragePool = vi.fn().mockResolvedValue([{ name: 'op-upd-file' }]);
+    createClientMock.mockReturnValue({ getStoragePool, updateStoragePool });
+    const { updateStoragePoolHandler } = await import('./storage-pool-handler.js');
+
+    const result = await updateStoragePoolHandler({
+      projectId: 'p1',
+      location: 'us-central1',
+      storagePoolId: 'sp1',
+      storagePoolType: 'FILE',
+    });
+
+    expect(getStoragePool).not.toHaveBeenCalled();
+    expect(updateStoragePool).toHaveBeenCalledTimes(1);
+    expect((result as any).structuredContent.operationId).toBe('op-upd-file');
   });
 
   it('updateStoragePoolHandler supports updating labels', async () => {

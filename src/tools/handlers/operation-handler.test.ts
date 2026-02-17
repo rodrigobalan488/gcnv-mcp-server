@@ -1,40 +1,50 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const createClientMock = vi.fn();
-const axiosRequestMock = vi.fn();
 
 vi.mock('../../utils/netapp-client-factory.js', () => ({
   NetAppClientFactory: { createClient: createClientMock },
 }));
 
-vi.mock('axios', () => ({
-  default: {
-    request: axiosRequestMock,
-  },
-}));
+/** Helper to create an async iterable from an array */
+function asyncIterable<T>(items: T[]): AsyncIterable<T> {
+  return {
+    [Symbol.asyncIterator]: async function* () {
+      for (const item of items) {
+        yield item;
+      }
+    },
+  };
+}
+
+/** Helper to create an async iterable that fails on iteration */
+function failingAsyncIterable(error: Error): AsyncIterable<never> {
+  return {
+    [Symbol.asyncIterator]() {
+      return {
+        next: async () => {
+          throw error;
+        },
+      };
+    },
+  };
+}
 
 describe('operation-handler', () => {
   beforeEach(() => {
     createClientMock.mockReset();
-    axiosRequestMock.mockReset();
   });
 
-  it('getOperationHandler calls axios with bearer token and returns structuredContent', async () => {
-    createClientMock.mockReturnValue({
-      auth: { getAccessToken: vi.fn().mockResolvedValue('tok') },
-    });
-    axiosRequestMock.mockResolvedValue({
-      data: { name: 'operations/op1', done: true, response: { ok: true } },
-    });
+  it('getOperationHandler uses client.getOperation and returns structuredContent', async () => {
+    const getOperation = vi
+      .fn()
+      .mockResolvedValue([{ name: 'operations/op1', done: true, response: { ok: true } }]);
+    createClientMock.mockReturnValue({ getOperation });
 
     const { getOperationHandler } = await import('./operation-handler.js');
     const result = await getOperationHandler({ operationName: 'operations/op1' });
 
-    expect(axiosRequestMock).toHaveBeenCalledWith({
-      url: 'https://netapp.googleapis.com/v1/operations/op1',
-      method: 'GET',
-      headers: { Authorization: 'Bearer tok' },
-    });
+    expect(getOperation).toHaveBeenCalledWith({ name: 'operations/op1' });
     expect(result.structuredContent).toMatchObject({
       name: 'operations/op1',
       done: true,
@@ -44,12 +54,8 @@ describe('operation-handler', () => {
   });
 
   it('getOperationHandler handles operation without metadata/response/error fields (covers false branches)', async () => {
-    createClientMock.mockReturnValue({
-      auth: { getAccessToken: vi.fn().mockResolvedValue('tok') },
-    });
-    axiosRequestMock.mockResolvedValue({
-      data: { name: 'operations/op1', done: false },
-    });
+    const getOperation = vi.fn().mockResolvedValue([{ name: 'operations/op1', done: false }]);
+    createClientMock.mockReturnValue({ getOperation });
 
     const { getOperationHandler } = await import('./operation-handler.js');
     const result = await getOperationHandler({ operationName: 'operations/op1' });
@@ -65,74 +71,55 @@ describe('operation-handler', () => {
   });
 
   it('cancelOperationHandler returns early when operation is already done', async () => {
-    createClientMock.mockReturnValue({
-      auth: { getAccessToken: vi.fn().mockResolvedValue('tok') },
-    });
-    axiosRequestMock.mockResolvedValueOnce({ data: { done: true } });
+    const getOperation = vi.fn().mockResolvedValue([{ done: true }]);
+    const cancelOperation = vi.fn();
+    createClientMock.mockReturnValue({ getOperation, cancelOperation });
 
     const { cancelOperationHandler } = await import('./operation-handler.js');
     const result = await cancelOperationHandler({ operationName: 'operations/op1' });
 
-    // Only the GET should happen
-    expect(axiosRequestMock).toHaveBeenCalledTimes(1);
+    expect(getOperation).toHaveBeenCalledWith({ name: 'operations/op1' });
+    expect(cancelOperation).not.toHaveBeenCalled();
     expect(result.structuredContent).toEqual({
       success: false,
       message: 'Operation already completed',
     });
   });
 
-  it('cancelOperationHandler posts cancel when not done', async () => {
-    createClientMock.mockReturnValue({
-      auth: { getAccessToken: vi.fn().mockResolvedValue('tok') },
-    });
-    axiosRequestMock.mockResolvedValueOnce({ data: { done: false } });
-    axiosRequestMock.mockResolvedValueOnce({ data: {} });
+  it('cancelOperationHandler calls cancelOperation when not done', async () => {
+    const getOperation = vi.fn().mockResolvedValue([{ done: false }]);
+    const cancelOperation = vi.fn().mockResolvedValue(undefined);
+    createClientMock.mockReturnValue({ getOperation, cancelOperation });
 
     const { cancelOperationHandler } = await import('./operation-handler.js');
     const result = await cancelOperationHandler({ operationName: 'operations/op1' });
 
-    expect(axiosRequestMock).toHaveBeenNthCalledWith(1, {
-      url: 'https://netapp.googleapis.com/v1/operations/op1',
-      method: 'GET',
-      headers: { Authorization: 'Bearer tok' },
-    });
-    expect(axiosRequestMock).toHaveBeenNthCalledWith(2, {
-      url: 'https://netapp.googleapis.com/v1/operations/op1:cancel',
-      method: 'POST',
-      headers: { Authorization: 'Bearer tok' },
-    });
+    expect(getOperation).toHaveBeenCalledWith({ name: 'operations/op1' });
+    expect(cancelOperation).toHaveBeenCalledWith({ name: 'operations/op1' });
     expect(result.structuredContent).toEqual({
       success: true,
       message: 'Cancellation request submitted successfully',
     });
   });
 
-  it('listOperationsHandler calls list url and returns formatted operations', async () => {
-    createClientMock.mockReturnValue({
-      auth: { getAccessToken: vi.fn().mockResolvedValue('tok') },
-    });
-    axiosRequestMock.mockResolvedValue({
-      data: {
-        operations: [
-          {
-            name: 'operations/op1',
-            done: true,
-            metadata: { target: 't1', verb: 'GET', statusMessage: 'ok', createTime: 'now' },
-          },
-          { name: 'operations/op2', done: false },
-        ],
-        nextPageToken: 'next',
-      },
-    });
+  it('listOperationsHandler uses listOperationsAsync and returns formatted operations', async () => {
+    const listOperationsAsync = vi.fn().mockReturnValue(
+      asyncIterable([
+        {
+          name: 'operations/op1',
+          done: true,
+          metadata: { target: 't1', verb: 'GET', statusMessage: 'ok', createTime: 'now' },
+        },
+        { name: 'operations/op2', done: false },
+      ])
+    );
+    createClientMock.mockReturnValue({ listOperationsAsync });
 
     const { listOperationsHandler } = await import('./operation-handler.js');
     const result = await listOperationsHandler({ projectId: 'p1', location: 'us-central1' });
 
-    expect(axiosRequestMock).toHaveBeenCalledWith({
-      url: 'https://netapp.googleapis.com/v1/projects/p1/locations/us-central1/operations',
-      method: 'GET',
-      params: {},
-      headers: { Authorization: 'Bearer tok' },
+    expect(listOperationsAsync).toHaveBeenCalledWith({
+      name: 'projects/p1/locations/us-central1/operations',
     });
     expect(result.structuredContent).toMatchObject({
       operations: [
@@ -147,15 +134,13 @@ describe('operation-handler', () => {
         }),
         expect.objectContaining({ name: 'operations/op2', done: false, success: false }),
       ],
-      nextPageToken: 'next',
     });
+    expect((result.structuredContent as any).nextPageToken).toBeUndefined();
   });
 
-  it('getOperationHandler returns error structuredContent on axios failure', async () => {
-    createClientMock.mockReturnValue({
-      auth: { getAccessToken: vi.fn().mockResolvedValue('tok') },
-    });
-    axiosRequestMock.mockRejectedValue(new Error('net'));
+  it('getOperationHandler returns error structuredContent on getOperation failure', async () => {
+    const getOperation = vi.fn().mockRejectedValue(new Error('net'));
+    createClientMock.mockReturnValue({ getOperation });
 
     const { getOperationHandler } = await import('./operation-handler.js');
     const result = await getOperationHandler({ operationName: 'operations/op1' });
@@ -164,11 +149,8 @@ describe('operation-handler', () => {
   });
 
   it('getOperationHandler includes parsed metadata fields and operation error when present', async () => {
-    createClientMock.mockReturnValue({
-      auth: { getAccessToken: vi.fn().mockResolvedValue('tok') },
-    });
-    axiosRequestMock.mockResolvedValue({
-      data: {
+    const getOperation = vi.fn().mockResolvedValue([
+      {
         name: 'operations/op1',
         done: true,
         metadata: {
@@ -181,7 +163,8 @@ describe('operation-handler', () => {
         },
         error: { code: 3, message: 'bad' },
       },
-    });
+    ]);
+    createClientMock.mockReturnValue({ getOperation });
 
     const { getOperationHandler } = await import('./operation-handler.js');
     const result = await getOperationHandler({ operationName: 'operations/op1' });
@@ -198,10 +181,6 @@ describe('operation-handler', () => {
   });
 
   it('getOperationHandler handles exceptions while parsing operation.metadata', async () => {
-    createClientMock.mockReturnValue({
-      auth: { getAccessToken: vi.fn().mockResolvedValue('tok') },
-    });
-
     const badMetadata = {};
     Object.defineProperty(badMetadata, 'createTime', {
       get() {
@@ -209,18 +188,14 @@ describe('operation-handler', () => {
       },
     });
 
-    axiosRequestMock.mockResolvedValue({
-      data: {
-        name: 'operations/op1',
-        done: true,
-        metadata: badMetadata,
-      },
-    });
+    const getOperation = vi
+      .fn()
+      .mockResolvedValue([{ name: 'operations/op1', done: true, metadata: badMetadata }]);
+    createClientMock.mockReturnValue({ getOperation });
 
     const { getOperationHandler } = await import('./operation-handler.js');
     const result = await getOperationHandler({ operationName: 'operations/op1' });
 
-    // Still returns, and includes the metadata field (set before parsing begins)
     expect(result.structuredContent).toMatchObject({
       name: 'operations/op1',
       done: true,
@@ -228,11 +203,9 @@ describe('operation-handler', () => {
     });
   });
 
-  it('cancelOperationHandler returns error structuredContent on axios failure', async () => {
-    createClientMock.mockReturnValue({
-      auth: { getAccessToken: vi.fn().mockResolvedValue('tok') },
-    });
-    axiosRequestMock.mockRejectedValue(new Error('net'));
+  it('cancelOperationHandler returns error structuredContent on getOperation failure', async () => {
+    const getOperation = vi.fn().mockRejectedValue(new Error('net'));
+    createClientMock.mockReturnValue({ getOperation });
 
     const { cancelOperationHandler } = await import('./operation-handler.js');
     const result = await cancelOperationHandler({ operationName: 'operations/op1' });
@@ -241,10 +214,8 @@ describe('operation-handler', () => {
   });
 
   it('cancelOperationHandler falls back to "Unknown error" when error.message is missing', async () => {
-    createClientMock.mockReturnValue({
-      auth: { getAccessToken: vi.fn().mockResolvedValue('tok') },
-    });
-    axiosRequestMock.mockRejectedValue({});
+    const getOperation = vi.fn().mockRejectedValue({});
+    createClientMock.mockReturnValue({ getOperation });
 
     const { cancelOperationHandler } = await import('./operation-handler.js');
     const result = await cancelOperationHandler({ operationName: 'operations/op1' });
@@ -253,11 +224,9 @@ describe('operation-handler', () => {
     expect((result as any).content?.[0]?.text).toContain('Unknown error');
   });
 
-  it('listOperationsHandler returns error structuredContent on axios failure', async () => {
-    createClientMock.mockReturnValue({
-      auth: { getAccessToken: vi.fn().mockResolvedValue('tok') },
-    });
-    axiosRequestMock.mockRejectedValue(new Error('net'));
+  it('listOperationsHandler returns error structuredContent on listOperationsAsync failure', async () => {
+    const listOperationsAsync = vi.fn().mockReturnValue(failingAsyncIterable(new Error('net')));
+    createClientMock.mockReturnValue({ listOperationsAsync });
 
     const { listOperationsHandler } = await import('./operation-handler.js');
     const result = await listOperationsHandler({ projectId: 'p1', location: 'us-central1' });
@@ -266,30 +235,23 @@ describe('operation-handler', () => {
   });
 
   it('listOperationsHandler formats operations with no metadata (covers false branches)', async () => {
-    createClientMock.mockReturnValue({
-      auth: { getAccessToken: vi.fn().mockResolvedValue('tok') },
-    });
-    axiosRequestMock.mockResolvedValue({
-      data: { operations: [{ name: 'operations/op1', done: true }], nextPageToken: 'n' },
-    });
+    const listOperationsAsync = vi
+      .fn()
+      .mockReturnValue(asyncIterable([{ name: 'operations/op1', done: true }]));
+    createClientMock.mockReturnValue({ listOperationsAsync });
 
     const { listOperationsHandler } = await import('./operation-handler.js');
     const result = await listOperationsHandler({ projectId: 'p1', location: 'us-central1' });
 
     expect(result.structuredContent).toMatchObject({
       operations: [expect.objectContaining({ name: 'operations/op1', done: true, success: true })],
-      nextPageToken: 'n',
     });
     expect((result.structuredContent as any).operations[0].target).toBeUndefined();
   });
 
-  it('listOperationsHandler passes filter/pageSize/pageToken params when provided', async () => {
-    createClientMock.mockReturnValue({
-      auth: { getAccessToken: vi.fn().mockResolvedValue('tok') },
-    });
-    axiosRequestMock.mockResolvedValue({
-      data: { operations: [], nextPageToken: 'n' },
-    });
+  it('listOperationsHandler passes filter/pageSize/pageToken in request when provided', async () => {
+    const listOperationsAsync = vi.fn().mockReturnValue(asyncIterable([]));
+    createClientMock.mockReturnValue({ listOperationsAsync });
 
     const { listOperationsHandler } = await import('./operation-handler.js');
     await listOperationsHandler({
@@ -300,34 +262,31 @@ describe('operation-handler', () => {
       pageToken: 'pt',
     });
 
-    expect(axiosRequestMock).toHaveBeenCalledWith(
-      expect.objectContaining({
-        params: { filter: 'done=true', pageSize: 10, pageToken: 'pt' },
-      })
-    );
+    expect(listOperationsAsync).toHaveBeenCalledWith({
+      name: 'projects/p1/locations/us-central1/operations',
+      filter: 'done=true',
+      pageSize: 10,
+      pageToken: 'pt',
+    });
   });
 
-  it('listOperationsHandler handles missing operations array (covers operations || [] branch)', async () => {
-    createClientMock.mockReturnValue({
-      auth: { getAccessToken: vi.fn().mockResolvedValue('tok') },
-    });
-    axiosRequestMock.mockResolvedValue({
-      data: { nextPageToken: 'n' },
-    });
+  it('listOperationsHandler handles empty iterable', async () => {
+    const listOperationsAsync = vi.fn().mockReturnValue(asyncIterable([]));
+    createClientMock.mockReturnValue({ listOperationsAsync });
 
     const { listOperationsHandler } = await import('./operation-handler.js');
     const result = await listOperationsHandler({ projectId: 'p1', location: 'us-central1' });
 
-    expect(result.structuredContent).toMatchObject({ operations: [], nextPageToken: 'n' });
+    expect(result.structuredContent).toMatchObject({ operations: [] });
   });
 
   it('getOperationHandler covers done=false with error/response present (branches should not attach)', async () => {
-    createClientMock.mockReturnValue({
-      auth: { getAccessToken: vi.fn().mockResolvedValue('tok') },
-    });
-    axiosRequestMock.mockResolvedValue({
-      data: { done: false, error: { code: 1, message: 'e' }, response: { ok: true } },
-    });
+    const getOperation = vi
+      .fn()
+      .mockResolvedValue([
+        { done: false, error: { code: 1, message: 'e' }, response: { ok: true } },
+      ]);
+    createClientMock.mockReturnValue({ getOperation });
 
     const { getOperationHandler } = await import('./operation-handler.js');
     const result = await getOperationHandler({ operationName: 'operations/op1' });
@@ -338,12 +297,8 @@ describe('operation-handler', () => {
   });
 
   it('getOperationHandler handles operation without name (covers operation.name || "" branch)', async () => {
-    createClientMock.mockReturnValue({
-      auth: { getAccessToken: vi.fn().mockResolvedValue('tok') },
-    });
-    axiosRequestMock.mockResolvedValue({
-      data: { done: true, response: { ok: true } },
-    });
+    const getOperation = vi.fn().mockResolvedValue([{ done: true, response: { ok: true } }]);
+    createClientMock.mockReturnValue({ getOperation });
 
     const { getOperationHandler } = await import('./operation-handler.js');
     const result = await getOperationHandler({ operationName: 'operations/op1' });
@@ -352,12 +307,10 @@ describe('operation-handler', () => {
   });
 
   it('listOperationsHandler handles operations missing name and metadata fields (covers op.name || "" branch)', async () => {
-    createClientMock.mockReturnValue({
-      auth: { getAccessToken: vi.fn().mockResolvedValue('tok') },
-    });
-    axiosRequestMock.mockResolvedValue({
-      data: { operations: [{ done: true, metadata: {} }], nextPageToken: 'n' },
-    });
+    const listOperationsAsync = vi
+      .fn()
+      .mockReturnValue(asyncIterable([{ done: true, metadata: {} }]));
+    createClientMock.mockReturnValue({ listOperationsAsync });
 
     const { listOperationsHandler } = await import('./operation-handler.js');
     const result = await listOperationsHandler({ projectId: 'p1', location: 'us-central1' });
@@ -370,10 +323,8 @@ describe('operation-handler', () => {
   });
 
   it('listOperationsHandler returns Unknown error when thrown error has no message', async () => {
-    createClientMock.mockReturnValue({
-      auth: { getAccessToken: vi.fn().mockResolvedValue('tok') },
-    });
-    axiosRequestMock.mockRejectedValue({});
+    const listOperationsAsync = vi.fn().mockReturnValue(failingAsyncIterable(new Error('')));
+    createClientMock.mockReturnValue({ listOperationsAsync });
 
     const { listOperationsHandler } = await import('./operation-handler.js');
     const result = await listOperationsHandler({ projectId: 'p1', location: 'us-central1' });
@@ -382,14 +333,24 @@ describe('operation-handler', () => {
   });
 
   it('getOperationHandler returns Unknown error when thrown error has no message', async () => {
-    createClientMock.mockReturnValue({
-      auth: { getAccessToken: vi.fn().mockResolvedValue('tok') },
-    });
-    axiosRequestMock.mockRejectedValue({});
+    const getOperation = vi.fn().mockRejectedValue(new Error());
+    createClientMock.mockReturnValue({ getOperation });
 
     const { getOperationHandler } = await import('./operation-handler.js');
     const result = await getOperationHandler({ operationName: 'operations/op1' });
 
     expect(result.structuredContent).toEqual({ error: 'Unknown error' });
+  });
+
+  it('listOperationsHandler uses location "-" when location omitted', async () => {
+    const listOperationsAsync = vi.fn().mockReturnValue(asyncIterable([]));
+    createClientMock.mockReturnValue({ listOperationsAsync });
+
+    const { listOperationsHandler } = await import('./operation-handler.js');
+    await listOperationsHandler({ projectId: 'p1' });
+
+    expect(listOperationsAsync).toHaveBeenCalledWith({
+      name: 'projects/p1/locations/-/operations',
+    });
   });
 });

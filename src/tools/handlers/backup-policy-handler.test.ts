@@ -210,6 +210,21 @@ describe('backup-policy-handler', () => {
     });
   });
 
+  it('listBackupPoliciesHandler uses location "-" when location is omitted', async () => {
+    const listBackupPolicies = vi.fn().mockResolvedValue([[]]);
+    createClientMock.mockReturnValue({ listBackupPolicies });
+    const { listBackupPoliciesHandler } = await import('./backup-policy-handler.js');
+
+    await listBackupPoliciesHandler({ projectId: 'p1' });
+
+    expect(listBackupPolicies).toHaveBeenCalledWith({
+      parent: 'projects/p1/locations/-',
+      filter: undefined,
+      pageSize: undefined,
+      pageToken: undefined,
+    });
+  });
+
   it('listBackupPoliciesHandler handles object response with backupPolicies + nextPageToken', async () => {
     const listBackupPolicies = vi.fn().mockResolvedValue([
       {

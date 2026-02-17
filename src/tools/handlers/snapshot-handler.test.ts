@@ -288,6 +288,21 @@ describe('snapshot-handler', () => {
     expect(result.structuredContent).toEqual({ snapshots: [], nextPageToken: '' });
   });
 
+  it('listSnapshotsHandler uses location "-" when location is omitted', async () => {
+    const listSnapshots = vi.fn().mockResolvedValue([[], undefined, 'next']);
+    createClientMock.mockReturnValue({ listSnapshots });
+    const { listSnapshotsHandler } = await import('./snapshot-handler.js');
+
+    await listSnapshotsHandler({
+      projectId: 'p1',
+      volumeId: 'vol1',
+    });
+
+    expect(listSnapshots).toHaveBeenCalledWith({
+      parent: 'projects/p1/locations/-/volumes/vol1',
+    });
+  });
+
   it('revertVolumeToSnapshotHandler calls revertVolume and returns operationId', async () => {
     const revertVolume = vi.fn().mockResolvedValue([{ name: 'op-rev' }]);
     createClientMock.mockReturnValue({ revertVolume });

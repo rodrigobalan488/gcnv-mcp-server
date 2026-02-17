@@ -293,6 +293,18 @@ describe('kms-config-handler', () => {
     expect(result.structuredContent).toMatchObject({ kmsConfigs: [], nextPageToken: 'n' });
   });
 
+  it('listKmsConfigsHandler uses location "-" when location is omitted', async () => {
+    const listKmsConfigs = vi.fn().mockResolvedValue([[], undefined, { nextPageToken: '' }]);
+    createClientMock.mockReturnValue({ listKmsConfigs });
+
+    const { listKmsConfigsHandler } = await import('./kms-config-handler.js');
+    await listKmsConfigsHandler({ projectId: 'p1' });
+
+    expect(listKmsConfigs).toHaveBeenCalledWith({
+      parent: 'projects/p1/locations/-',
+    });
+  });
+
   it('getKmsConfigHandler returns isError when schema validation fails (covers parse error catch)', async () => {
     const getKmsConfig = vi.fn().mockResolvedValue([{}]);
     createClientMock.mockReturnValue({ getKmsConfig });

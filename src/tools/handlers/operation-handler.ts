@@ -1,6 +1,5 @@
 import { ToolHandler } from '../../types/tool.js';
 import { NetAppClientFactory } from '../../utils/netapp-client-factory.js';
-import axios from 'axios';
 import { logger } from '../../logger.js';
 
 const log = logger.child({ module: 'operation-handler' });
@@ -60,30 +59,33 @@ function parseOperationMetadata(operation: any): Record<string, any> {
   return result;
 }
 
+/** Format a single operation for list output */
+function formatOperationForList(op: any): Record<string, any> {
+  const done = op.done === true;
+  const result: Record<string, any> = {
+    name: op.name || '',
+    done,
+    success: done,
+  };
+  if (op.metadata) {
+    if (op.metadata.createTime) result.createTime = op.metadata.createTime;
+    if (op.metadata.target) result.target = op.metadata.target;
+    if (op.metadata.verb) result.verb = op.metadata.verb;
+    if (op.metadata.statusMessage) result.statusMessage = op.metadata.statusMessage;
+  }
+  return result;
+}
+
 // Get Operation Handler
 export const getOperationHandler: ToolHandler = async (args: { [key: string]: any }) => {
   try {
     const { operationName } = args;
 
-    // Create a new NetApp client using the factory
     const netAppClient = NetAppClientFactory.createClient();
+    const [operation] = await netAppClient.getOperation({ name: operationName } as Parameters<
+      typeof netAppClient.getOperation
+    >[0]);
 
-    // Make a direct request to the operations API
-    // Using the Google API client's credentials
-    const auth = (netAppClient as any).auth;
-
-    // Make a direct API call using axios
-    const response = await axios.request({
-      url: `https://netapp.googleapis.com/v1/${operationName}`,
-      method: 'GET',
-      headers: {
-        Authorization: `Bearer ${await auth.getAccessToken()}`,
-      },
-    });
-
-    const operation = response.data;
-
-    // Parse the operation data
     const formattedResponse = parseOperationMetadata(operation);
     return {
       content: [
@@ -115,24 +117,11 @@ export const cancelOperationHandler: ToolHandler = async (args: { [key: string]:
   try {
     const { operationName } = args;
 
-    // Create a new NetApp client using the factory
     const netAppClient = NetAppClientFactory.createClient();
 
-    // Access the auth client to make direct API calls
-    const auth = (netAppClient as any).auth;
-
-    // First, get the current operation state
-    const getResponse = await axios.request({
-      url: `https://netapp.googleapis.com/v1/${operationName}`,
-      method: 'GET',
-      headers: {
-        Authorization: `Bearer ${await auth.getAccessToken()}`,
-      },
-    });
-
-    const operation = getResponse.data as { done: boolean };
-
-    // Check if operation is already completed
+    const [operation] = await netAppClient.getOperation({ name: operationName } as Parameters<
+      typeof netAppClient.getOperation
+    >[0]);
     if (operation.done) {
       return {
         content: [
@@ -148,14 +137,9 @@ export const cancelOperationHandler: ToolHandler = async (args: { [key: string]:
       };
     }
 
-    // Cancel the operation using direct API call
-    await axios.request({
-      url: `https://netapp.googleapis.com/v1/${operationName}:cancel`,
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${await auth.getAccessToken()}`,
-      },
-    });
+    await netAppClient.cancelOperation({ name: operationName } as Parameters<
+      typeof netAppClient.cancelOperation
+    >[0]);
 
     return {
       content: [
@@ -192,78 +176,38 @@ export const listOperationsHandler: ToolHandler = async (args: { [key: string]: 
     const { projectId, filter, pageSize, pageToken } = args;
     const location = args.location ?? '-';
 
-    // Create a new NetApp client using the factory
     const netAppClient = NetAppClientFactory.createClient();
+    const name = `projects/${projectId}/locations/${location}/operations`;
 
-    // Make a direct API call using the client's auth credentials
-    const auth = (netAppClient as any).auth;
+    const request: { name: string; filter?: string; pageSize?: number; pageToken?: string } = {
+      name,
+    };
+    if (filter) request.filter = filter;
+    if (pageSize != null) request.pageSize = pageSize;
+    if (pageToken) request.pageToken = pageToken;
 
-    // Build the request parameters
-    const params: Record<string, any> = {};
+    const operations: any[] = [];
+    const iterable = netAppClient.listOperationsAsync(
+      request as Parameters<typeof netAppClient.listOperationsAsync>[0]
+    );
+    for await (const op of iterable) {
+      operations.push(op);
+    }
 
-    if (filter) params.filter = filter;
-    if (pageSize) params.pageSize = pageSize;
-    if (pageToken) params.pageToken = pageToken;
+    log.info({ count: operations.length }, 'List operations response');
 
-    // Make the API request (use "-" for all locations)
-    const response = await axios.request({
-      url: `https://netapp.googleapis.com/v1/projects/${projectId}/locations/${location}/operations`,
-      method: 'GET',
-      params,
-      headers: {
-        Authorization: `Bearer ${await auth.getAccessToken()}`,
-      },
-    });
-
-    log.info({ responseData: response.data }, 'List operations response');
-
-    // Type assertion for response data
-    const responseData = response.data as { operations?: any[]; nextPageToken?: string };
-    const operations = responseData.operations || [];
-    const nextPageToken = responseData.nextPageToken;
-
-    // Format the operations
-    const formattedOperations = operations.map((op: any) => {
-      const done = op.done === true;
-      const result: any = {
-        name: op.name || '',
-        done,
-        success: done,
-      };
-
-      // Extract metadata
-      if (op.metadata) {
-        if (op.metadata.createTime) {
-          result.createTime = op.metadata.createTime;
-        }
-        if (op.metadata.target) {
-          result.target = op.metadata.target;
-        }
-        if (op.metadata.verb) {
-          result.verb = op.metadata.verb;
-        }
-        if (op.metadata.statusMessage) {
-          result.statusMessage = op.metadata.statusMessage;
-        }
-      }
-
-      return result;
-    });
+    const formattedOperations = operations.map(formatOperationForList);
 
     return {
       content: [
         {
           type: 'text' as const,
-          text: JSON.stringify(
-            { operations: response.data, nextPageToken: nextPageToken },
-            null,
-            2
-          ),
+          text: JSON.stringify({ operations: formattedOperations }, null, 2),
         },
       ],
       structuredContent: {
         operations: formattedOperations,
-        nextPageToken: nextPageToken,
+        nextPageToken: undefined as string | undefined,
       },
     };
   } catch (error: any) {

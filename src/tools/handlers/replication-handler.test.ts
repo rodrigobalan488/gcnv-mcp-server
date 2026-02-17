@@ -372,6 +372,21 @@ describe('replication-handler', () => {
     expect(result.structuredContent).toMatchObject({ replications: [], nextPageToken: 'next' });
   });
 
+  it('listReplicationsHandler uses location "-" when location is omitted', async () => {
+    const listReplications = vi.fn().mockResolvedValue([[], undefined, 'next']);
+    createClientMock.mockReturnValue({ listReplications });
+
+    const { listReplicationsHandler } = await import('./replication-handler.js');
+    await listReplicationsHandler({
+      projectId: 'p1',
+      volumeId: 'vol1',
+    });
+
+    expect(listReplications).toHaveBeenCalledWith({
+      parent: 'projects/p1/locations/-/volumes/vol1',
+    });
+  });
+
   it('listReplicationsHandler covers error path', async () => {
     const listReplications = vi.fn().mockRejectedValue(new Error('boom'));
     createClientMock.mockReturnValue({ listReplications });

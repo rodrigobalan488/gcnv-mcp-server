@@ -16,6 +16,7 @@ describe('NetAppClientFactory', () => {
     const { NetAppClientFactory } = await import('./netapp-client-factory.js');
     NetAppClientFactory.reset();
     NetAppClientCtor.mockClear();
+    delete process.env.GCNV_API_ENDPOINT;
   });
 
   it('creates a new client and caches it when cacheKey is provided', async () => {
@@ -82,5 +83,22 @@ describe('NetAppClientFactory', () => {
 
     expect(c1).not.toBe(c2);
     expect(NetAppClientCtor).toHaveBeenCalledTimes(2);
+  });
+
+  it('uses env GCNV_API_ENDPOINT when provided and trimmed', async () => {
+    const { NetAppClientFactory } = await import('./netapp-client-factory.js');
+    process.env.GCNV_API_ENDPOINT = ' https://example-endpoint ';
+
+    const client = NetAppClientFactory.createClient();
+    expect((client as any).__opts).toMatchObject({ apiEndpoint: 'https://example-endpoint' });
+  });
+
+  it('ignores env GCNV_API_ENDPOINT when only whitespace', async () => {
+    const { NetAppClientFactory } = await import('./netapp-client-factory.js');
+    process.env.GCNV_API_ENDPOINT = '   ';
+
+    const client = NetAppClientFactory.createClient({ timeout: 123 } as any);
+    expect((client as any).__opts).not.toHaveProperty('apiEndpoint');
+    expect((client as any).__opts).toMatchObject({ timeout: 123 });
   });
 });

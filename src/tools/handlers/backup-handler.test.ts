@@ -293,6 +293,21 @@ describe('backup-handler', () => {
     });
   });
 
+  it('listBackupsHandler uses location "-" when omitted', async () => {
+    const listBackups = vi.fn().mockResolvedValue([[], undefined, undefined]);
+    createClientMock.mockReturnValue({ listBackups });
+
+    const { listBackupsHandler } = await import('./backup-handler.js');
+    await listBackupsHandler({ projectId: 'p1', backupVaultId: 'bv1' });
+
+    expect(listBackups).toHaveBeenCalledWith({
+      parent: 'projects/p1/locations/-/backupVaults/bv1',
+      filter: undefined,
+      pageSize: undefined,
+      pageToken: undefined,
+    });
+  });
+
   it('listBackupsHandler omits nextPageToken when it is falsey and handles undefined backup entries', async () => {
     const listBackups = vi.fn().mockResolvedValue([[undefined as any], undefined, '']);
     createClientMock.mockReturnValue({ listBackups });
@@ -538,6 +553,45 @@ describe('backup-handler', () => {
     expect(createClientMock).not.toHaveBeenCalled();
   });
 
+  it('restoreBackupFilesHandler validates fileList items are non-empty strings', async () => {
+    createClientMock.mockReturnValue({ restoreBackupFiles: vi.fn() });
+    const { restoreBackupFilesHandler } = await import('./backup-handler.js');
+
+    const result = (await restoreBackupFilesHandler({
+      projectId: 'p1',
+      location: 'us-central1',
+      volumeId: 'vol1',
+      backupVaultId: 'bv1',
+      backupId: 'b1',
+      fileList: ['/dir/a.txt', ''],
+      restoreDestinationPath: '/restore',
+    })) as any;
+
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toContain('fileList must contain only non-empty strings');
+  });
+
+  it('restoreBackupFilesHandler validates non-string required fields', async () => {
+    createClientMock.mockReturnValue({ restoreBackupFiles: vi.fn() });
+    const { restoreBackupFilesHandler } = await import('./backup-handler.js');
+
+    const result = (await restoreBackupFilesHandler({
+      projectId: 1,
+      location: 2,
+      volumeId: 'vol1',
+      backupVaultId: 3,
+      backupId: 4,
+      fileList: ['/dir/a.txt'],
+      restoreDestinationPath: '/restore',
+    })) as any;
+
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toContain('Missing or invalid projectId');
+    expect(result.content[0].text).toContain('Missing or invalid location');
+    expect(result.content[0].text).toContain('Missing or invalid backupVaultId');
+    expect(result.content[0].text).toContain('Missing or invalid backupId');
+  });
+
   it('restoreBackupFilesHandler falls back to empty operationId when operation.name is missing', async () => {
     const restoreBackupFiles = vi.fn().mockResolvedValue([{}]);
     createClientMock.mockReturnValue({ restoreBackupFiles });
@@ -576,5 +630,23 @@ describe('backup-handler', () => {
 
     expect(result.isError).toBe(true);
     expect(result.content[0].text).toContain('Failed to restore backup files');
+  });
+
+  it('restoreBackupFilesHandler falls back to Unknown error when error has no message', async () => {
+    createClientMock.mockReturnValue({ restoreBackupFiles: vi.fn().mockRejectedValue({}) });
+    const { restoreBackupFilesHandler } = await import('./backup-handler.js');
+
+    const result = (await restoreBackupFilesHandler({
+      projectId: 'p1',
+      location: 'us-central1',
+      volumeId: 'vol1',
+      backupVaultId: 'bv1',
+      backupId: 'b1',
+      fileList: ['/dir/a.txt'],
+      restoreDestinationPath: '/restore',
+    })) as any;
+
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toContain('Unknown error');
   });
 });

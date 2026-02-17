@@ -273,6 +273,18 @@ describe('active-directory-handler', () => {
     });
   });
 
+  it('listActiveDirectoriesHandler uses location "-" when location is omitted', async () => {
+    const listActiveDirectories = vi.fn().mockResolvedValue([[], undefined, { nextPageToken: '' }]);
+    createClientMock.mockReturnValue({ listActiveDirectories });
+
+    const { listActiveDirectoriesHandler } = await import('./active-directory-handler.js');
+    await listActiveDirectoriesHandler({ projectId: 'p1' });
+
+    expect(listActiveDirectories).toHaveBeenCalledWith({
+      parent: 'projects/p1/locations/-',
+    });
+  });
+
   it('updateActiveDirectoryHandler calls updateActiveDirectory with updateMask', async () => {
     const updateActiveDirectory = vi.fn().mockResolvedValue([{ name: 'op-upd' }]);
     createClientMock.mockReturnValue({ updateActiveDirectory });
