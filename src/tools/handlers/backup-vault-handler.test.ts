@@ -298,6 +298,29 @@ describe('backup-vault-handler', () => {
     });
   });
 
+  it('getBackupVaultHandler normalizes non-string state and backupVaultType to UNKNOWN', async () => {
+    const getBackupVault = vi.fn().mockResolvedValue([
+      {
+        name: 'projects/p1/locations/us-central1/backupVaults/bv1',
+        state: 1,
+        backupVaultType: 2,
+      },
+    ]);
+    createClientMock.mockReturnValue({ getBackupVault });
+
+    const { getBackupVaultHandler } = await import('./backup-vault-handler.js');
+    const result = await getBackupVaultHandler({
+      projectId: 'p1',
+      location: 'us-central1',
+      backupVaultId: 'bv1',
+    });
+
+    expect(result.structuredContent).toMatchObject({
+      state: 'UNKNOWN',
+      backupVaultType: 'UNKNOWN',
+    });
+  });
+
   it('listBackupVaultsHandler handles object-shaped responses (backupVaults + nextPageToken)', async () => {
     const listBackupVaults = vi.fn().mockResolvedValue([
       {

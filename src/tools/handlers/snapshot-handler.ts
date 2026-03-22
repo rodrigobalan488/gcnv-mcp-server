@@ -4,6 +4,10 @@ import { logger } from '../../logger.js';
 
 const log = logger.child({ module: 'snapshot-handler' });
 
+function normalizeStringEnum(value: any): string {
+  return typeof value === 'string' ? value : 'UNKNOWN';
+}
+
 // Helper to format snapshot data for responses
 function formatSnapshotData(snapshot: any): any {
   const result: any = {};
@@ -24,7 +28,7 @@ function formatSnapshotData(snapshot: any): any {
   }
 
   // Copy basic properties
-  if (snapshot.state) result.state = snapshot.state;
+  if (snapshot.state !== undefined) result.state = normalizeStringEnum(snapshot.state);
 
   // Format timestamps if they exist
   if (snapshot.createTime) {

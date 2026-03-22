@@ -1,7 +1,11 @@
 {
-  "name": "@netapp/gcnv-mcp-server",
-  "version": "1.0.0",
+  "name": "gcnv-mcp-server",
+  "version": "1.0.1",
   "description": "Google Cloud NetApp Volumes MCP Server - A Model Context Protocol server for managing GCNV Backup, StoragePool, Volume and Replication resources",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/NetApp/gcnv-mcp-server"
+  },
   "main": "build/index.js",
   "bin": {
     "gcnv-mcp": "build/index.js"
@@ -18,7 +22,7 @@
     "node": ">=18"
   },
   "publishConfig": {
-    "registry": "https://npm.pkg.github.com",
+    "registry": "https://registry.npmjs.org",
     "access": "public"
   },
   "scripts": {

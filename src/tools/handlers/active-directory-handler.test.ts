@@ -210,6 +210,25 @@ describe('active-directory-handler', () => {
     expect((result.structuredContent as any).createTime).toBeInstanceOf(Date);
   });
 
+  it('getActiveDirectoryHandler normalizes non-string state to UNKNOWN', async () => {
+    const getActiveDirectory = vi.fn().mockResolvedValue([
+      {
+        name: 'projects/p1/locations/us-central1/activeDirectories/ad1',
+        state: 2,
+      },
+    ]);
+    createClientMock.mockReturnValue({ getActiveDirectory });
+
+    const { getActiveDirectoryHandler } = await import('./active-directory-handler.js');
+    const result = await getActiveDirectoryHandler({
+      projectId: 'p1',
+      location: 'us-central1',
+      activeDirectoryId: 'ad1',
+    });
+
+    expect(result.structuredContent).toMatchObject({ state: 'UNKNOWN' });
+  });
+
   it('getActiveDirectoryHandler returns empty structuredContent when AD is undefined', async () => {
     const getActiveDirectory = vi.fn().mockResolvedValue([undefined]);
     createClientMock.mockReturnValue({ getActiveDirectory });

@@ -4,6 +4,10 @@ import { logger } from '../../logger.js';
 
 const log = logger.child({ module: 'active-directory-handler' });
 
+function normalizeStringEnum(value: any): string {
+  return typeof value === 'string' ? value : 'UNKNOWN';
+}
+
 // Helper to format active directory data
 function formatActiveDirectoryData(ad: any): any {
   const result: any = {};
@@ -22,7 +26,7 @@ function formatActiveDirectoryData(ad: any): any {
   if (ad.netBiosPrefix) result.netBiosPrefix = ad.netBiosPrefix;
   if (ad.organizationalUnit) result.organizationalUnit = ad.organizationalUnit;
   if (ad.aesEncryption !== undefined) result.aesEncryption = ad.aesEncryption;
-  if (ad.state) result.state = ad.state;
+  if (ad.state !== undefined) result.state = normalizeStringEnum(ad.state);
 
   if (ad.createTime) {
     result.createTime = new Date(ad.createTime.seconds * 1000);

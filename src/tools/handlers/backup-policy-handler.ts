@@ -21,6 +21,10 @@ interface BackupPolicy {
 
 import { ToolHandler } from '../../types/tool.js';
 
+function normalizeStringEnum(value: any): string {
+  return typeof value === 'string' ? value : 'UNKNOWN';
+}
+
 /**
  * Creates a new backup policy
  */
@@ -160,7 +164,7 @@ export const getBackupPolicyHandler: ToolHandler = async (args) => {
       description: backupPolicy.description,
       enabled: backupPolicy.enabled || false,
       assignedVolumeCount: backupPolicy.assignedVolumeCount,
-      state: backupPolicy.state || 'UNKNOWN',
+      state: normalizeStringEnum(backupPolicy.state),
       createTime: backupPolicy.createTime
         ? new Date(Number((backupPolicy.createTime as any).seconds || 0) * 1000)
         : new Date(),
@@ -229,7 +233,7 @@ export const listBackupPoliciesHandler: ToolHandler = async (args) => {
         description: policy.description,
         enabled: policy.enabled || false,
         assignedVolumeCount: policy.assignedVolumeCount,
-        state: policy.state || 'UNKNOWN',
+        state: normalizeStringEnum(policy.state),
         createTime: policy.createTime
           ? new Date(Number(policy.createTime.seconds ?? 0) * 1000)
           : undefined,

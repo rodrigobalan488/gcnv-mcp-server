@@ -6,36 +6,6 @@ vi.mock('../../utils/netapp-client-factory.js', () => ({
   NetAppClientFactory: { createClient: createClientMock },
 }));
 
-// Expected value for legacy display hint (matches normalizeResourceOutput)
-const _legacyHint = String.fromCharCode(
-  89,
-  111,
-  117,
-  32,
-  104,
-  97,
-  118,
-  101,
-  32,
-  103,
-  111,
-  116,
-  32,
-  97,
-  110,
-  32,
-  101,
-  97,
-  115,
-  116,
-  101,
-  114,
-  32,
-  101,
-  103,
-  103
-);
-
 describe('storage-pool-handler', () => {
   beforeEach(() => createClientMock.mockReset());
 
@@ -528,6 +498,7 @@ describe('storage-pool-handler', () => {
       {
         name: 'projects/p1/locations/us-central1/storagePools/sp1',
         capacityGib: '1',
+        state: 'READY',
         createTime: { seconds: 1 },
       },
     ]);
@@ -547,6 +518,7 @@ describe('storage-pool-handler', () => {
       name: 'projects/p1/locations/us-central1/storagePools/sp1',
       storagePoolId: 'sp1',
       capacityGib: 1,
+      state: 'READY',
     });
     expect(result.structuredContent?.createTime).toBeInstanceOf(Date);
   });
@@ -653,7 +625,7 @@ describe('storage-pool-handler', () => {
     expect((result as any).isError).toBe(true);
   });
 
-  it('getStoragePoolHandler adds optional _h when pool name matches legacy pattern', async () => {
+  it('getStoragePoolHandler does not add extra legacy fields to structuredContent', async () => {
     const getStoragePool = vi.fn().mockResolvedValue([
       {
         name: 'projects/p1/locations/us-central1/storagePools/egg',
@@ -668,26 +640,6 @@ describe('storage-pool-handler', () => {
       projectId: 'p1',
       location: 'us-central1',
       storagePoolId: 'egg',
-    });
-
-    expect((result.structuredContent as any)._h).toBe(_legacyHint);
-  });
-
-  it('getStoragePoolHandler does not add _h when pool name does not match legacy pattern', async () => {
-    const getStoragePool = vi.fn().mockResolvedValue([
-      {
-        name: 'projects/p1/locations/us-central1/storagePools/sp1',
-        capacityGib: '1',
-        createTime: { seconds: 1 },
-      },
-    ]);
-    createClientMock.mockReturnValue({ getStoragePool });
-
-    const { getStoragePoolHandler } = await import('./storage-pool-handler.js');
-    const result = await getStoragePoolHandler({
-      projectId: 'p1',
-      location: 'us-central1',
-      storagePoolId: 'sp1',
     });
 
     expect((result.structuredContent as any)._h).toBeUndefined();
@@ -857,7 +809,7 @@ describe('storage-pool-handler', () => {
     expect((result as any).isError).toBe(true);
   });
 
-  it('listStoragePoolsHandler adds optional _h on items whose name matches legacy pattern', async () => {
+  it('listStoragePoolsHandler does not add extra legacy fields to list items', async () => {
     const listStoragePools = vi.fn().mockResolvedValue([
       [
         { name: 'projects/p1/locations/us-central1/storagePools/sp1', capacityGib: '1' },
@@ -873,10 +825,10 @@ describe('storage-pool-handler', () => {
 
     const pools = (result.structuredContent as any).storagePools;
     expect(pools[0]._h).toBeUndefined();
-    expect(pools[1]._h).toBe(_legacyHint);
+    expect(pools[1]._h).toBeUndefined();
   });
 
-  it('createStoragePoolHandler adds optional _h when pool name matches legacy pattern', async () => {
+  it('createStoragePoolHandler does not add extra legacy fields to structuredContent', async () => {
     const createStoragePool = vi.fn().mockResolvedValue([{ name: 'op-create' }]);
     createClientMock.mockReturnValue({ createStoragePool });
 
@@ -890,7 +842,11 @@ describe('storage-pool-handler', () => {
       network: 'net1',
     });
 
-    expect((result.structuredContent as any)._h).toBe(_legacyHint);
+    expect(result.structuredContent).toEqual({
+      name: 'projects/p1/locations/us-central1/storagePools/egg',
+      operationId: 'op-create',
+    });
+    expect((result.structuredContent as any)._h).toBeUndefined();
   });
 
   it('updateStoragePoolHandler calls updateStoragePool with updateMask', async () => {
@@ -1059,6 +1015,98 @@ describe('storage-pool-handler', () => {
       updateMask: { paths: ['qos_type'] },
     });
     expect(result.structuredContent).toMatchObject({ operationId: 'op-upd-qos' });
+  });
+
+  it('updateStoragePoolHandler supports updating totalThroughputMibps for FLEX pools', async () => {
+    const getStoragePool = vi.fn().mockResolvedValue([{ serviceLevel: 'FLEX' }]);
+    const updateStoragePool = vi.fn().mockResolvedValue([{ name: 'op-upd-throughput' }]);
+    createClientMock.mockReturnValue({ getStoragePool, updateStoragePool });
+
+    const { updateStoragePoolHandler } = await import('./storage-pool-handler.js');
+    const result = await updateStoragePoolHandler({
+      projectId: 'p1',
+      location: 'us-central1',
+      storagePoolId: 'sp1',
+      totalThroughputMibps: 512,
+    });
+
+    expect(getStoragePool).toHaveBeenCalledWith({
+      name: 'projects/p1/locations/us-central1/storagePools/sp1',
+    });
+    expect(updateStoragePool).toHaveBeenCalledWith({
+      storagePool: {
+        name: 'projects/p1/locations/us-central1/storagePools/sp1',
+        totalThroughputMibps: 512,
+      },
+      updateMask: { paths: ['total_throughput_mibps'] },
+    });
+    expect(result.structuredContent).toMatchObject({ operationId: 'op-upd-throughput' });
+  });
+
+  it('updateStoragePoolHandler reuses cached pool lookup when multiple FLEX checks are needed', async () => {
+    const getStoragePool = vi.fn().mockResolvedValue([{ serviceLevel: 'FLEX' }]);
+    const updateStoragePool = vi.fn().mockResolvedValue([{ name: 'op-upd-cached' }]);
+    createClientMock.mockReturnValue({ getStoragePool, updateStoragePool });
+
+    const { updateStoragePoolHandler } = await import('./storage-pool-handler.js');
+    const result = await updateStoragePoolHandler({
+      projectId: 'p1',
+      location: 'us-central1',
+      storagePoolId: 'sp1',
+      totalThroughputMibps: 512,
+      storagePoolType: 'UNIFIED',
+    });
+
+    expect(getStoragePool).toHaveBeenCalledTimes(1);
+    expect(updateStoragePool).toHaveBeenCalledWith({
+      storagePool: {
+        name: 'projects/p1/locations/us-central1/storagePools/sp1',
+        totalThroughputMibps: 512,
+        type: 2,
+      },
+      updateMask: { paths: expect.arrayContaining(['total_throughput_mibps', 'type']) },
+    });
+    expect((result as any).structuredContent.operationId).toBe('op-upd-cached');
+  });
+
+  it('updateStoragePoolHandler rejects totalThroughputMibps for non-FLEX pools', async () => {
+    const getStoragePool = vi.fn().mockResolvedValue([{ serviceLevel: 'PREMIUM' }]);
+    const updateStoragePool = vi.fn();
+    createClientMock.mockReturnValue({ getStoragePool, updateStoragePool });
+
+    const { updateStoragePoolHandler } = await import('./storage-pool-handler.js');
+    const result = await updateStoragePoolHandler({
+      projectId: 'p1',
+      location: 'us-central1',
+      storagePoolId: 'sp1',
+      totalThroughputMibps: 512,
+    });
+
+    expect((result as any).isError).toBe(true);
+    expect((result as any).content?.[0]?.text).toContain(
+      'totalThroughputMibps is only supported when serviceLevel is FLEX'
+    );
+    expect(updateStoragePool).not.toHaveBeenCalled();
+  });
+
+  it('updateStoragePoolHandler rejects totalThroughputMibps when serviceLevel is non-string', async () => {
+    const getStoragePool = vi.fn().mockResolvedValue([{ serviceLevel: 7 }]);
+    const updateStoragePool = vi.fn();
+    createClientMock.mockReturnValue({ getStoragePool, updateStoragePool });
+
+    const { updateStoragePoolHandler } = await import('./storage-pool-handler.js');
+    const result = await updateStoragePoolHandler({
+      projectId: 'p1',
+      location: 'us-central1',
+      storagePoolId: 'sp1',
+      totalThroughputMibps: 256,
+    });
+
+    expect((result as any).isError).toBe(true);
+    expect((result as any).content?.[0]?.text).toContain(
+      'totalThroughputMibps is only supported when serviceLevel is FLEX'
+    );
+    expect(updateStoragePool).not.toHaveBeenCalled();
   });
 
   it('validateDirectoryServiceHandler calls validateDirectoryService', async () => {

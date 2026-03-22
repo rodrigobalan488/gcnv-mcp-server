@@ -4,6 +4,10 @@ import { logger } from '../../logger.js';
 
 const log = logger.child({ module: 'quota-rule-handler' });
 
+function normalizeStringEnum(value: any): string {
+  return typeof value === 'string' ? value : 'UNKNOWN';
+}
+
 // Basic runtime validation so we fail fast before calling the NetApp API
 function validatePathArgs(
   args: {
@@ -68,7 +72,7 @@ function formatQuotaRuleData(rule: any): any {
     const mib = Number(rule.diskLimitMib);
     result.diskLimitMib = mib;
   }
-  if (rule.state) result.state = rule.state;
+  if (rule.state !== undefined) result.state = normalizeStringEnum(rule.state);
 
   if (rule.createTime) {
     result.createTime = new Date(rule.createTime.seconds * 1000);

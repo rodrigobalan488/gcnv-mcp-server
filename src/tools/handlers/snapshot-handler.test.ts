@@ -225,6 +225,26 @@ describe('snapshot-handler', () => {
     expect((result.structuredContent as any).createTime).toBeUndefined();
   });
 
+  it('getSnapshotHandler normalizes non-string state to UNKNOWN', async () => {
+    const getSnapshot = vi.fn().mockResolvedValue([
+      {
+        name: 'projects/p1/locations/us-central1/volumes/vol1/snapshots/s1',
+        state: 2,
+      },
+    ]);
+    createClientMock.mockReturnValue({ getSnapshot });
+
+    const { getSnapshotHandler } = await import('./snapshot-handler.js');
+    const result = await getSnapshotHandler({
+      projectId: 'p1',
+      location: 'us-central1',
+      volumeId: 'vol1',
+      snapshotId: 's1',
+    });
+
+    expect(result.structuredContent).toMatchObject({ state: 'UNKNOWN' });
+  });
+
   it('listSnapshotsHandler calls listSnapshots and returns formatted list', async () => {
     const listSnapshots = vi
       .fn()

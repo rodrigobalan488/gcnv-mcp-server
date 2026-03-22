@@ -19,7 +19,15 @@ export const logger = pino(
     level: process.env.LOG_LEVEL || (isDev ? 'debug' : 'info'),
     base: { service: 'gcnv-mcp' },
     timestamp: pino.stdTimeFunctions.isoTime,
-    redact: ['request.auth', 'request.token', 'headers.authorization'],
+    redact: [
+      'request.auth',
+      'request.token',
+      'headers.authorization',
+      'request.activeDirectory.password',
+      'request.activeDirectory.username',
+      'activeDirectory.password',
+      'activeDirectory.username',
+    ],
   },
   destination
 );

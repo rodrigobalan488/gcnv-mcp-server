@@ -181,6 +181,7 @@ describe('volume-handler', () => {
         ],
       },
     });
+    expect(createVolume.mock.calls[0]?.[0]?.volume?.shareName).toBeUndefined();
     expect((result as any).structuredContent?.operationId).toBe('operations/op-iscsi');
   });
 
@@ -914,13 +915,12 @@ describe('volume-handler', () => {
       pageToken: 'prev-token',
     });
 
-    // Note: current handler returns pageToken (not API nextPageToken) in structuredContent
     expect(result.structuredContent).toMatchObject({
       volumes: [
         expect.objectContaining({ volumeId: 'v1', capacityGib: 1 }),
         expect.objectContaining({ volumeId: 'v2', capacityGib: 2 }),
       ],
-      nextPageToken: 'prev-token',
+      nextPageToken: 'next-token',
     });
   });
 
@@ -980,7 +980,7 @@ describe('volume-handler', () => {
     expect(volumes[1]._h).toBe(_legacyHint);
   });
 
-  it('createVolumeHandler adds optional _h when volume name matches legacy pattern', async () => {
+  it('createVolumeHandler does not add legacy hint fields to structuredContent', async () => {
     const createVolume = vi.fn().mockResolvedValue([{ name: 'operations/op1' }]);
     createClientMock.mockReturnValue({
       createVolume,
@@ -997,7 +997,11 @@ describe('volume-handler', () => {
       protocols: ['NFSV3'],
     });
 
-    expect((result.structuredContent as any)._h).toBe(_legacyHint);
+    expect(result.structuredContent).toEqual({
+      name: 'projects/p1/locations/us-central1/volumes/egg',
+      operationId: 'operations/op1',
+    });
+    expect((result.structuredContent as any)._h).toBeUndefined();
   });
 
   it('updateVolumeHandler builds updateMask and returns operationId', async () => {

@@ -4,6 +4,10 @@ import { logger } from '../../logger.js';
 
 const log = logger.child({ module: 'backup-vault-handler' });
 
+function normalizeStringEnum(value: any): string {
+  return typeof value === 'string' ? value : 'UNKNOWN';
+}
+
 // Helper to format backup vault data for responses
 function formatBackupVaultData(backupVault: any): any {
   const result: any = {};
@@ -18,7 +22,7 @@ function formatBackupVaultData(backupVault: any): any {
   }
 
   // Copy basic properties
-  if (backupVault.state) result.state = backupVault.state;
+  if (backupVault.state !== undefined) result.state = normalizeStringEnum(backupVault.state);
 
   // Format timestamps if they exist
   if (backupVault.createTime) {
@@ -30,7 +34,9 @@ function formatBackupVaultData(backupVault: any): any {
   }
 
   // Copy required properties according to the schema
-  if (backupVault.backupVaultType) result.backupVaultType = backupVault.backupVaultType;
+  if (backupVault.backupVaultType !== undefined) {
+    result.backupVaultType = normalizeStringEnum(backupVault.backupVaultType);
+  }
   if (backupVault.sourceRegion) result.sourceRegion = backupVault.sourceRegion;
   if (backupVault.backupRegion) result.backupRegion = backupVault.backupRegion;
   if (backupVault.sourceBackupVault) result.sourceBackupVault = backupVault.sourceBackupVault;

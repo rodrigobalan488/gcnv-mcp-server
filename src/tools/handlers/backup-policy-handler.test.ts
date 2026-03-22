@@ -139,6 +139,25 @@ describe('backup-policy-handler', () => {
     expect((result.structuredContent as any).createTime).toBeInstanceOf(Date);
   });
 
+  it('getBackupPolicyHandler preserves string state values', async () => {
+    const getBackupPolicy = vi.fn().mockResolvedValue([
+      {
+        name: 'projects/p1/locations/us-central1/backupPolicies/bp1',
+        state: 'READY',
+      },
+    ]);
+    createClientMock.mockReturnValue({ getBackupPolicy });
+
+    const { getBackupPolicyHandler } = await import('./backup-policy-handler.js');
+    const result = await getBackupPolicyHandler({
+      projectId: 'p1',
+      location: 'us-central1',
+      backupPolicyId: 'bp1',
+    });
+
+    expect(result.structuredContent).toMatchObject({ state: 'READY' });
+  });
+
   it('getBackupPolicyHandler uses createTime fallback when missing', async () => {
     const getBackupPolicy = vi.fn().mockResolvedValue([
       {

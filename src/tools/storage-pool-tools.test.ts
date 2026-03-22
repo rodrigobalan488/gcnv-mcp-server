@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
-import { createStoragePoolTool } from './storage-pool-tools.js';
+import { createStoragePoolTool, updateStoragePoolTool } from './storage-pool-tools.js';
 
 describe('storage-pool-tools', () => {
   it('createStoragePoolTool accepts FLEX service level (case-insensitive)', () => {
@@ -64,6 +64,19 @@ describe('storage-pool-tools', () => {
         capacityGib: 100,
         serviceLevel: 'standard',
         storagePoolType: 'FILE',
+      })
+    ).not.toThrow();
+  });
+
+  it('updateStoragePoolTool accepts totalThroughputMibps input', () => {
+    const schema = z.object(updateStoragePoolTool.inputSchema);
+
+    expect(() =>
+      schema.parse({
+        projectId: 'p1',
+        location: 'us-central1',
+        storagePoolId: 'sp1',
+        totalThroughputMibps: 512,
       })
     ).not.toThrow();
   });

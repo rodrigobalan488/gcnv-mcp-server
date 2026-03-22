@@ -4,6 +4,10 @@ import { logger } from '../../logger.js';
 
 const log = logger.child({ module: 'backup-handler' });
 
+function normalizeStringEnum(value: any): string {
+  return typeof value === 'string' ? value : 'UNKNOWN';
+}
+
 // Helper to format backup data for responses
 function formatBackupData(backup: any): any {
   const result: any = {};
@@ -29,7 +33,7 @@ function formatBackupData(backup: any): any {
   }
 
   // Copy basic properties
-  if (backup.state) result.state = backup.state;
+  if (backup.state !== undefined) result.state = normalizeStringEnum(backup.state);
 
   // Map volume usage bytes
   result.volumeUsagebytes = backup.volumeUsagebytes; // Keep original for compatibility
@@ -41,7 +45,7 @@ function formatBackupData(backup: any): any {
 
   // Copy optional properties according to schema
   if (backup.description) result.description = backup.description;
-  if (backup.backupType) result.backupType = backup.backupType;
+  if (backup.backupType !== undefined) result.backupType = normalizeStringEnum(backup.backupType);
   result.chainStoragebytes = backup.chainStoragebytes || 0;
   if (backup.satisfiesPzs !== undefined) result.satisfiesPzs = backup.satisfiesPzs;
   if (backup.satisfiesPzi !== undefined) result.satisfiesPzi = backup.satisfiesPzi;

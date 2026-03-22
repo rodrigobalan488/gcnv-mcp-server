@@ -5,6 +5,10 @@ import { logger } from '../../logger.js';
 
 const log = logger.child({ module: 'replication-handler' });
 
+function normalizeStringEnum(value: any): string {
+  return typeof value === 'string' ? value : 'UNKNOWN';
+}
+
 // Helper to format replication data for responses
 function formatReplicationData(replication: any): any {
   const result: any = {};
@@ -21,7 +25,7 @@ function formatReplicationData(replication: any): any {
   // Copy basic properties
   if (replication.sourceVolume) result.sourceVolume = replication.sourceVolume;
   if (replication.destinationVolume) result.destinationVolume = replication.destinationVolume;
-  if (replication.state) result.state = replication.state;
+  if (replication.state !== undefined) result.state = normalizeStringEnum(replication.state);
   if (replication.healthy !== undefined) result.healthy = replication.healthy;
 
   // Format timestamps if they exist

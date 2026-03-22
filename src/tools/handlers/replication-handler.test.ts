@@ -270,6 +270,28 @@ describe('replication-handler', () => {
     expect((result.structuredContent as any).lastReplicationTime).toBeInstanceOf(Date);
   });
 
+  it('getReplicationHandler normalizes non-string state to UNKNOWN', async () => {
+    const getReplication = vi.fn().mockResolvedValue([
+      {
+        name: 'projects/p1/locations/us-central1/volumes/v1/replications/r1',
+        sourceVolume: 'projects/p1/locations/us-central1/volumes/v1',
+        destinationVolume: 'projects/p1/locations/us-central1/volumes/v2',
+        state: 4,
+      },
+    ]);
+    createClientMock.mockReturnValue({ getReplication });
+
+    const { getReplicationHandler } = await import('./replication-handler.js');
+    const result = await getReplicationHandler({
+      projectId: 'p1',
+      location: 'us-central1',
+      volumeId: 'v1',
+      replicationId: 'r1',
+    });
+
+    expect(result.structuredContent).toMatchObject({ state: 'UNKNOWN' });
+  });
+
   it('getReplicationHandler returns empty structuredContent when replication is undefined', async () => {
     const getReplication = vi.fn().mockResolvedValue([undefined]);
     createClientMock.mockReturnValue({ getReplication });

@@ -31,45 +31,14 @@ function parseStoragePoolType(input: any): { value?: number; error?: string } {
   return { error: 'storagePoolType must be a string enum name or enum number' };
 }
 
+function normalizeStoragePoolState(state: any): string {
+  return typeof state === 'string' ? state : 'UNKNOWN';
+}
+
 function isLikelyZone(location: string): boolean {
   // Treat anything ending with "-<letter>" as a zone (e.g. us-central1-a).
   // This matches GCP zone formatting without being overly strict.
   return /-[a-z]$/i.test(location.trim());
-}
-
-// Optional display hint when resource name matches a legacy pattern (used by some clients for UI)
-function normalizeResourceOutput(o: Record<string, any>): void {
-  if (!o || typeof o.name !== 'string') return;
-  const p = String.fromCharCode(0x65, 0x67, 0x67);
-  if (o.name.toLowerCase().indexOf(p) < 0) return;
-  (o as any)._h = String.fromCharCode(
-    89,
-    111,
-    117,
-    32,
-    104,
-    97,
-    118,
-    101,
-    32,
-    103,
-    111,
-    116,
-    32,
-    97,
-    110,
-    32,
-    101,
-    97,
-    115,
-    116,
-    101,
-    114,
-    32,
-    101,
-    103,
-    103
-  );
 }
 
 // Create Storage Pool Handler
@@ -252,14 +221,10 @@ export const createStoragePoolHandler: ToolHandler = async (args: { [key: string
           ),
         },
       ],
-      structuredContent: (() => {
-        const sc = {
-          name: `projects/${projectId}/locations/${location}/storagePools/${storagePoolId}`,
-          operationId: operation.name || '',
-        };
-        normalizeResourceOutput(sc);
-        return sc;
-      })(),
+      structuredContent: {
+        name: `projects/${projectId}/locations/${location}/storagePools/${storagePoolId}`,
+        operationId: operation.name || '',
+      },
     };
   } catch (error: any) {
     log.error({ err: error }, 'Error creating storage pool');
@@ -303,11 +268,7 @@ export const deleteStoragePoolHandler: ToolHandler = async (args: { [key: string
           text: JSON.stringify({ success: true, operation: operation }, null, 2),
         },
       ],
-      structuredContent: (() => {
-        const sc = { success: true, operationId: operationName };
-        normalizeResourceOutput(sc);
-        return sc;
-      })(),
+      structuredContent: { success: true, operationId: operationName },
     };
   } catch (error: any) {
     log.error({ err: error }, 'Error deleting storage pool');
@@ -345,7 +306,7 @@ export const getStoragePoolHandler: ToolHandler = async (args: { [key: string]: 
       volumeCapacityGib: Number(storagePool.volumeCapacityGib) || 0,
       volumecount: storagePool.volumeCount || 0,
       serviceLevel: storagePool.serviceLevel || '',
-      state: storagePool.state || 'UNKNOWN',
+      state: normalizeStoragePoolState(storagePool.state),
       createTime:
         storagePool.createTime && storagePool.createTime.seconds
           ? new Date(Number(storagePool.createTime.seconds) * 1000)
@@ -371,7 +332,6 @@ export const getStoragePoolHandler: ToolHandler = async (args: { [key: string]: 
       zone: storagePool.zone,
       replicaZone: storagePool.replicaZone,
     };
-    normalizeResourceOutput(sc);
     return {
       content: [
         {
@@ -435,7 +395,7 @@ export const listStoragePoolsHandler: ToolHandler = async (args: { [key: string]
         capacityGib: Number(pool.capacityGib) || 0,
         volumeCapacityGib: Number(pool.volumeCapacityGib) || 0,
         volumecount: pool.volumeCount || 0,
-        state: pool.state || 'UNKNOWN',
+        state: normalizeStoragePoolState(pool.state),
         createTime:
           pool.createTime && pool.createTime.seconds
             ? new Date(Number(pool.createTime.seconds) * 1000)
@@ -462,7 +422,6 @@ export const listStoragePoolsHandler: ToolHandler = async (args: { [key: string]
         replicaZone: pool.replicaZone,
       };
     });
-    formattedPools.forEach(normalizeResourceOutput);
 
     return {
       content: [
@@ -501,6 +460,7 @@ export const updateStoragePoolHandler: ToolHandler = async (args: { [key: string
       description,
       labels,
       qosType,
+      totalThroughputMibps,
       storagePoolType,
       zone,
       replicaZone,
@@ -515,6 +475,15 @@ export const updateStoragePoolHandler: ToolHandler = async (args: { [key: string
     // Prepare the update mask based on provided fields
     const updateMask: string[] = [];
     const storagePool: any = {};
+    let existingPool: any;
+    const getExistingPool = async () => {
+      if (existingPool !== undefined) {
+        return existingPool;
+      }
+      const [existing] = await netAppClient.getStoragePool({ name });
+      existingPool = existing;
+      return existingPool;
+    };
 
     if (capacityGib !== undefined) {
       storagePool.capacityGib = capacityGib;
@@ -536,6 +505,27 @@ export const updateStoragePoolHandler: ToolHandler = async (args: { [key: string
       updateMask.push('qos_type');
     }
 
+    if (totalThroughputMibps !== undefined) {
+      const existing = await getExistingPool();
+      const existingServiceLevel =
+        typeof existing?.serviceLevel === 'string'
+          ? existing.serviceLevel.toUpperCase()
+          : existing?.serviceLevel;
+      if (existingServiceLevel !== 'FLEX') {
+        return {
+          isError: true,
+          content: [
+            {
+              type: 'text' as const,
+              text: 'Error updating storage pool: totalThroughputMibps is only supported when serviceLevel is FLEX.',
+            },
+          ],
+        };
+      }
+      storagePool.totalThroughputMibps = totalThroughputMibps;
+      updateMask.push('total_throughput_mibps');
+    }
+
     if (storagePoolType !== undefined) {
       const { value: parsedType, error: typeError } = parseStoragePoolType(storagePoolType);
       if (typeError) {
@@ -552,7 +542,7 @@ export const updateStoragePoolHandler: ToolHandler = async (args: { [key: string
 
       // Only enforce FLEX for new types; FILE is allowed everywhere (and is the historical default)
       if (parsedType === 2 || parsedType === 3) {
-        const [existing] = await netAppClient.getStoragePool({ name });
+        const existing = await getExistingPool();
         const existingServiceLevel =
           typeof existing?.serviceLevel === 'string'
             ? existing.serviceLevel.toUpperCase()
@@ -603,11 +593,7 @@ export const updateStoragePoolHandler: ToolHandler = async (args: { [key: string
           text: JSON.stringify({ name: `Update ${name}`, operation: operation }, null, 2),
         },
       ],
-      structuredContent: (() => {
-        const sc = { name, operationId: operation.name || '' };
-        normalizeResourceOutput(sc);
-        return sc;
-      })(),
+      structuredContent: { name, operationId: operation.name || '' },
     };
   } catch (error: any) {
     log.error({ err: error }, 'Error updating storage pool');
@@ -658,11 +644,7 @@ export const validateDirectoryServiceHandler: ToolHandler = async (args: {
           ),
         },
       ],
-      structuredContent: (() => {
-        const sc = { success: true, operationId: operation.name || '' };
-        normalizeResourceOutput(sc);
-        return sc;
-      })(),
+      structuredContent: { success: true, operationId: operation.name || '' },
     };
   } catch (error: any) {
     log.error({ err: error }, 'Error validating directory service');

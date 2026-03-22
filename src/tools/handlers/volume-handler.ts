@@ -367,6 +367,7 @@ export const createVolumeHandler: ToolHandler = async (args: { [key: string]: an
       ISCSI: 4,
     };
     const protocolEnums = normalizedProtocolNames.map((p) => protocolEnumMap[p]);
+    const effectiveShareName = isIscsi ? undefined : shareName || volumeId;
 
     // Create the volume request
     const request = {
@@ -382,7 +383,7 @@ export const createVolumeHandler: ToolHandler = async (args: { [key: string]: an
         snapshotPolicy,
         tieringPolicy,
         hybridReplicationParameters,
-        shareName: shareName || volumeId,
+        ...(effectiveShareName !== undefined ? { shareName: effectiveShareName } : {}),
         exportPolicy,
         ...(blockDevicesPayload ? { blockDevices: blockDevicesPayload } : {}),
         ...(throughputMibps !== undefined ? { throughputMibps } : {}),
@@ -403,14 +404,10 @@ export const createVolumeHandler: ToolHandler = async (args: { [key: string]: an
           text: `Created volume ${volumeId}. Operation ID: ${operation.name || ''}`,
         },
       ],
-      structuredContent: (() => {
-        const sc = {
-          name: `projects/${projectId}/locations/${location}/volumes/${volumeId}`,
-          operationId: operation.name || '',
-        };
-        normalizeResourceOutput(sc);
-        return sc;
-      })(),
+      structuredContent: {
+        name: `projects/${projectId}/locations/${location}/volumes/${volumeId}`,
+        operationId: operation.name || '',
+      },
     };
   } catch (error: any) {
     log.error({ err: error }, 'Error creating volume');
@@ -562,7 +559,7 @@ export const listVolumesHandler: ToolHandler = async (args: { [key: string]: any
       ],
       structuredContent: {
         volumes: formattedVolumes,
-        nextPageToken: pageToken || '',
+        nextPageToken: nextPageToken || '',
       },
     };
   } catch (error: any) {
@@ -666,11 +663,7 @@ export const updateVolumeHandler: ToolHandler = async (args: { [key: string]: an
           text: `Updated volume ${volumeId}. Operation ID: ${operation.name || ''}`,
         },
       ],
-      structuredContent: (() => {
-        const sc = { name, operationId: operation.name || '' };
-        normalizeResourceOutput(sc);
-        return sc;
-      })(),
+      structuredContent: { name, operationId: operation.name || '' },
     };
   } catch (error: any) {
     log.error({ err: error }, 'Error updating volume');

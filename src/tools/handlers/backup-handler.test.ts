@@ -248,6 +248,31 @@ describe('backup-handler', () => {
     expect((result.structuredContent as any).createTime).toBeInstanceOf(Date);
   });
 
+  it('getBackupHandler normalizes non-string state and backupType to UNKNOWN', async () => {
+    const getBackup = vi.fn().mockResolvedValue([
+      {
+        name: 'projects/p1/locations/us-central1/backupVaults/bv1/backups/b1',
+        sourceVolume: 'projects/p1/locations/us-central1/volumes/vol1',
+        state: 1,
+        backupType: 2,
+      },
+    ]);
+    createClientMock.mockReturnValue({ getBackup });
+
+    const { getBackupHandler } = await import('./backup-handler.js');
+    const result = await getBackupHandler({
+      projectId: 'p1',
+      location: 'us-central1',
+      backupVaultId: 'bv1',
+      backupId: 'b1',
+    });
+
+    expect(result.structuredContent).toMatchObject({
+      state: 'UNKNOWN',
+      backupType: 'UNKNOWN',
+    });
+  });
+
   it('getBackupHandler covers error-code branches', async () => {
     const { getBackupHandler } = await import('./backup-handler.js');
     const mkErr = (code: number) => Object.assign(new Error('boom'), { code });

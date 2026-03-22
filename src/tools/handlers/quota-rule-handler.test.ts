@@ -334,6 +334,26 @@ describe('quota-rule-handler', () => {
     expect((result.structuredContent as any).createTime).toBeInstanceOf(Date);
   });
 
+  it('getQuotaRuleHandler normalizes non-string state to UNKNOWN', async () => {
+    const getQuotaRule = vi.fn().mockResolvedValue([
+      {
+        name: 'projects/p1/locations/us-central1/volumes/v1/quotaRules/q1',
+        state: 3,
+      },
+    ]);
+    createClientMock.mockReturnValue({ getQuotaRule });
+
+    const { getQuotaRuleHandler } = await import('./quota-rule-handler.js');
+    const result = await getQuotaRuleHandler({
+      projectId: 'p1',
+      location: 'us-central1',
+      volumeId: 'v1',
+      quotaRuleId: 'q1',
+    });
+
+    expect(result.structuredContent).toMatchObject({ state: 'UNKNOWN' });
+  });
+
   it('getQuotaRuleHandler supports legacy quotaType field (no type field)', async () => {
     const getQuotaRule = vi.fn().mockResolvedValue([
       {

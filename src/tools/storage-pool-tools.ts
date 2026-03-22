@@ -49,10 +49,10 @@ export const createStoragePoolTool: ToolConfig = {
     totalThroughputMibps: z
       .number()
       .int()
-      .min(64)
-      .max(5120)
       .optional()
-      .describe('Total throughput in MiBps for Flex custom performance (FLEX only; 64-5120 MiBps)'),
+      .describe(
+        'Total throughput in MiBps for Flex custom performance (FLEX only; valid range and limits are enforced by the NetApp Volumes API/quota)'
+      ),
     qosType: z
       .union([z.enum(['AUTO', 'MANUAL']), z.enum(['auto', 'manual'])])
       .optional()
@@ -249,6 +249,13 @@ export const updateStoragePoolTool: ToolConfig = {
       .optional()
       .describe(
         'QoS type for the storage pool (AUTO or MANUAL). Manual QoS is supported for Standard/Premium/Extreme; not supported for Flex.'
+      ),
+    totalThroughputMibps: z
+      .number()
+      .int()
+      .optional()
+      .describe(
+        'Total throughput in MiBps for Flex custom performance (FLEX only; valid range and limits are enforced by the NetApp Volumes API/quota, and updates are subject to API cadence rules)'
       ),
     storagePoolType: z
       .union([
