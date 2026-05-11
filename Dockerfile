@@ -16,22 +16,24 @@ COPY . .
 RUN npm run build
 
 # --- Stage 2: Production Stage ---
+# --- Stage 2: Production Stage ---
 FROM node:18-slim
 
 WORKDIR /app
 
 # Set production environment
 ENV NODE_ENV=production
+# Set the port as an environment variable (standard practice)
+ENV PORT=8080
 
-# Copy only the built files and production dependencies from the builder
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/package.json ./package.json
 COPY --from=builder /app/package-lock.json ./package-lock.json
 
-# Install only production dependencies to keep the image small
 RUN npm install --omit=dev
 
-# The MCP server usually runs via stdio or HTTP. 
-# Defaulting to the entry point defined in your package.json.
-# Adjust the command if you need to pass specific flags like --transport sse
-ENTRYPOINT ["node", "dist/index.js"]
+# Inform Docker that the container listens on the specified port at runtime
+EXPOSE 8080
+
+# Change the command to use SSE transport so it listens for HTTP traffic
+CMD ["node", "dist/index.js", "--transport", "sse"]
