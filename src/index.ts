@@ -50,10 +50,6 @@ async function startHttpTransport(mcpServerTemplate: McpServer, port: number = 8
       res.end('ok');
       return;
       }
-     // 2. Handle GET request to establish SSE stream
-    if (req.method === 'GET' && req.url === '/message') {
-      // ... your existing logic ...
-    
     // Handle GET request to establish SSE stream
     if (req.method === 'GET' && req.url === '/message') {
       void (async () => {
