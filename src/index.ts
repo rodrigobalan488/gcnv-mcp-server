@@ -37,7 +37,7 @@ async function startStdioTransport(mcpServer: McpServer) {
   });
 }
 
-async function startHttpTransport(mcpServerTemplate: McpServer, port: number = 3000) {
+async function startHttpTransport(mcpServerTemplate: McpServer, port: number = 8080) {
   const http = await import('http');
 
   // Store transports by session ID to route POST requests
@@ -84,7 +84,7 @@ async function startHttpTransport(mcpServerTemplate: McpServer, port: number = 3
     else if (req.method === 'POST' && req.url?.startsWith('/message')) {
       try {
         // Extract session ID from query parameter
-        const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
+        const url = new URL(req.url, `http://${req.headers.host || '0.0.0.0'}`);
         const sessionId = url.searchParams.get('sessionId');
 
         if (!sessionId) {
@@ -134,7 +134,7 @@ async function startHttpTransport(mcpServerTemplate: McpServer, port: number = 3
   });
 
   server.listen(port, () => {
-    log.info({ port }, `MCP Server listening on http://localhost:${port}/message`);
+    log.info({ port }, `MCP Server listening on http://0.0.0.0:${port}/message`);
   });
 
   await new Promise<void>((resolve, reject) => {
