@@ -26,4 +26,5 @@ RUN npm install --omit=dev
 
 EXPOSE 8080
 
-CMD ["node", "dist/index.js", "--transport", "sse"]
+# Use the "http" string your script expects, and pass the port env var
+CMD ["node", "dist/index.js", "--transport", "http", "--port", "8080"]
