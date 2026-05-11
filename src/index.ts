@@ -44,6 +44,16 @@ async function startHttpTransport(mcpServerTemplate: McpServer, port: number = 8
   const transports: Map<string, SSEServerTransport> = new Map();
 
   const server = http.createServer((req, res) => {
+    // 1. ADD THIS: Health Check for Cloud Run
+    if (req.method === 'GET' && (req.url === '/' || req.url === '/health')) {
+      res.writeHead(200, { 'Content-Type': 'text/plain' });
+      res.end('ok');
+      return;
+      }
+     // 2. Handle GET request to establish SSE stream
+    if (req.method === 'GET' && req.url === '/message') {
+      // ... your existing logic ...
+    
     // Handle GET request to establish SSE stream
     if (req.method === 'GET' && req.url === '/message') {
       void (async () => {
@@ -167,10 +177,10 @@ function parseArgs(): { transport: 'stdio' | 'http'; port?: number } {
   for (let i = 0; i < args.length; i++) {
     if (args[i] === '--transport' || args[i] === '-t') {
       const value = args[i + 1];
-      if (value === 'http' || value === 'stdio') {
-        transport = value;
-        i++;
-      }
+      if (value === 'http' || value === 'sse' || value === 'stdio') {
+  transport = (value === 'sse') ? 'http' : value;
+  i++;
+}
     } else if (args[i] === '--port' || args[i] === '-p') {
       const value = parseInt(args[i + 1], 10);
       if (!isNaN(value)) {
