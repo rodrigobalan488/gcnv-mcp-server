@@ -27,7 +27,7 @@ class StreamableHttpTransport implements Transport {
   start(): Promise<void> {
     // Set headers to keep the connection open and stream responses
     this.res.writeHead(200, {
-      'Content-Type': 'application/x-ndjson',
+      'Content-Type': 'application/json',
       'Transfer-Encoding': 'chunked',
       Connection: 'keep-alive',
       'Access-Control-Allow-Origin': '*',
